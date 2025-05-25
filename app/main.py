@@ -15,9 +15,14 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="GitHub Actions Dashboard")
 
+# Get the absolute path to the static and templates directories
+import os
+static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+templates_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
+
 # Mount static files
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
-templates = Jinja2Templates(directory="app/templates")
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+templates = Jinja2Templates(directory=templates_dir)
 
 # GitHub token will be passed as an environment variable
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')

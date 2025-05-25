@@ -25,11 +25,15 @@ COPY --from=builder /root/.local /root/.local
 # Make sure scripts in .local are usable
 ENV PATH="/root/.local/bin:${PATH}"
 
+# Create necessary directories and set proper permissions
+RUN mkdir -p /app/static /app/templates && \
+    chown -R 1000:1000 /app
+
 # Copy application code
 COPY . .
 
-# Create necessary directories
-RUN mkdir -p /app/static /app/templates
+# Set the working directory to /app/app since main.py is in the app directory
+WORKDIR /app/app
 
 # Expose the port the app runs on
 EXPOSE 8000
