@@ -31,7 +31,7 @@ jobs:
         push: true
         tags: ghcr.io/${{ github.repository_owner }}/github-actions-dashboard:latest
         build-args: |
-          GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN=${{ secrets.GH_PAT }}
     
     - name: Deploy to VPS
       uses: appleboy/ssh-action@v1.0.0
