@@ -24,6 +24,7 @@ COPY --from=builder /root/.local /root/.local
 
 # Make sure scripts in .local are usable
 ENV PATH="/root/.local/bin:${PATH}"
+ENV PYTHONPATH="/app:${PYTHONPATH}"
 
 # Create necessary directories and set proper permissions
 RUN mkdir -p /app/static /app/templates && \
@@ -32,11 +33,8 @@ RUN mkdir -p /app/static /app/templates && \
 # Copy application code
 COPY . .
 
-# Set the working directory to /app/app since main.py is in the app directory
-WORKDIR /app/app
-
 # Expose the port the app runs on
 EXPOSE 8000
 
 # Command to run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

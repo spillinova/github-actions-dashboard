@@ -75,7 +75,6 @@ jobs:
             cat > docker-compose.yml << 'EOL'
           version: '3.8'
 
-
           services:
             app:
               image: ghcr.io/${{ github.repository_owner }}/github-actions-dashboard:latest
@@ -85,12 +84,22 @@ jobs:
                 - "8000:8000"
               volumes:
                 - ./data:/app/data
-              env_file: .env
+              environment:
+                - GITHUB_TOKEN=${GITHUB_TOKEN}
+                - HOST=0.0.0.0
+                - PORT=8000
+                - PYTHONUNBUFFERED=1
               healthcheck:
-                test: ["CMD", "curl", "-f", "http://localhost:8000"]
+                test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
                 interval: 30s
                 timeout: 10s
                 retries: 3
+                start_period: 30s
+              logging:
+                driver: json-file
+                options:
+                  max-size: "10m"
+                  max-file: "3"
           EOL
           fi
 
@@ -112,17 +121,24 @@ jobs:
           # Create necessary directories
           mkdir -p data
 
-          # Stop and remove existing containers
-          docker-compose down || true
+          # Stop and remove existing containers completely
+          docker-compose down -v --remove-orphans || true
 
           # Ensure we're using the latest image
-          echo $GH_PAT | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+          echo $GH_PAT | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           docker pull ghcr.io/${{ github.repository_owner }}/github-actions-dashboard:latest
 
-          # Start the application
-          docker-compose up -d --build
+          # Clean up old images and containers
+          docker system prune -f
 
-          # Clean up old images
-          docker image prune -f
+          # Start the application with a clean build
+          docker-compose up -d --build --force-recreate --remove-orphans
+          
+          # Show logs for debugging
+          echo "Container status after startup:"
+          docker ps -a
+          
+          echo "\nContainer logs:"
+          docker logs github-actions-dashboard || true
 
           echo "Deployment completed successfully!"
