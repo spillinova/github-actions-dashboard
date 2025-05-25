@@ -2,157 +2,131 @@ name: Deploy to VPS
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   workflow_dispatch:
+
+env:
+  DOCKER_IMAGE: ghcr.io/${{ github.repository_owner }}/github-actions-dashboard
+  DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH || '/root/github-actions-dashboard' }}
 
 jobs:
   deploy:
-    name: Deploy to VPS - ${{ github.event.head_commit && github.event.head_commit.message || 'Manual deployment' }}
-    # Add a concurrency group to cancel in-progress runs when a new commit is pushed
-    concurrency: 
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    concurrency:
       group: deploy-${{ github.ref }}
       cancel-in-progress: true
-    runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-    
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
-    
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      with:
-        driver: docker
-        
-    - name: Login to GitHub Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-        
-    - name: Set up Docker Buildx with QEMU
-      uses: docker/setup-buildx-action@v3
-      with:
-        driver: docker
-        driver-opts: image=moby/buildkit:master
-        buildkitd-flags: --allow-insecure-entitlement security.insecure --allow-insecure-entitlement network.host
-        
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@v3
-      with:
-        platforms: linux/amd64,linux/arm64
-    
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        push: true
-        tags: |
-          ghcr.io/${{ github.repository_owner }}/github-actions-dashboard:latest
-          ghcr.io/${{ github.repository_owner }}/github-actions-dashboard:${{ github.sha }}
-        build-args: |
-          GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-    
-    - name: Deploy to VPS
-      uses: appleboy/ssh-action@v1.0.0
-      with:
-        host: ${{ secrets.VPS_HOST }}
-        username: ${{ secrets.VPS_USER }}
-        key: ${{ secrets.VPS_SSH_KEY }}
-        envs: GH_PAT
-        script: |-
-          # Create deployment directory
-          mkdir -p ${{ secrets.VPS_DEPLOY_PATH }}
-          cd ${{ secrets.VPS_DEPLOY_PATH }}
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-          # Create docker-compose.yml if it doesn't exist
-          if [ ! -f docker-compose.yml ]; then
-            cat > docker-compose.yml << 'EOL'
-          version: '3.8'
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker
+          driver-opts: image=moby/buildkit:master
+          buildkitd-flags: |
+            --allow-insecure-entitlement security.insecure
+            --allow-insecure-entitlement network.host
 
-          services:
-            app:
-              image: ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_SHA}
-              container_name: github-actions-dashboard
-              restart: unless-stopped
-              ports:
-                - "8000:8000"
-              volumes:
-                - ./data:/app/data
-              env_file:
-                - .env.docker
-              environment:
-                - GITHUB_TOKEN=${GITHUB_TOKEN}
-                - HOST=0.0.0.0
-                - PORT=8000
-                - PYTHONUNBUFFERED=1
-              healthcheck:
-                test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-                interval: 30s
-                timeout: 10s
-                retries: 3
-                start_period: 30s
-              logging:
-                driver: json-file
-                options:
-                  max-size: "10m"
-                  max-file: "3"
-EOL
-          fi
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-          # Create .env file with all required variables
-          cat > .env << 'ENV_EOF'
-GITHUB_TOKEN=$GH_PAT
-HOST=0.0.0.0
-PORT=8000
-PYTHONUNBUFFERED=1
-ENV_EOF
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-          # Create a .env file for docker-compose
-          cat > .env.docker << 'DOCKER_EOF'
-GITHUB_TOKEN=$GH_PAT
-HOST=0.0.0.0
-PORT=8000
-PYTHONUNBUFFERED=1
-DOCKER_EOF
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:latest
+            ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+          build-args: |
+            GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
 
-          # Create necessary directories
-          mkdir -p data
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            
+            # Create deployment directory
+            mkdir -p ${{ env.DEPLOY_PATH }}
+            cd ${{ env.DEPLOY_PATH }}
+            
+            # Create docker-compose.yml
+            cat > docker-compose.yml << 'EOF'
+            version: '3.8'
 
-          # Stop and remove existing containers completely
-          docker-compose down -v --remove-orphans || true
+            services:
+              app:
+                image: ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+                container_name: github-actions-dashboard
+                restart: unless-stopped
+                ports:
+                  - "8000:8000"
+                volumes:
+                  - ./data:/app/data
+                env_file:
+                  - .env
+                environment:
+                  - HOST=0.0.0.0
+                  - PORT=8000
+                  - PYTHONUNBUFFERED=1
+                healthcheck:
+                  test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+                  interval: 30s
+                  timeout: 10s
+                  retries: 3
+                  start_period: 30s
+                logging:
+                  driver: json-file
+                  options:
+                    max-size: "10m"
+                    max-file: "3"
+            EOF
 
-          # Ensure we're using the latest image
-          echo $GH_PAT | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          docker pull ghcr.io/${{ github.repository_owner }}/github-actions-dashboard:latest
+            # Create .env file
+            cat > .env << EOF
+            GITHUB_TOKEN=${{ secrets.GH_PAT }}
+            HOST=0.0.0.0
+            PORT=8000
+            PYTHONUNBUFFERED=1
+            EOF
 
-          # Clean up old images and containers
-          docker system prune -f
+            # Create data directory
+            mkdir -p data
 
-          # Restart the container with new environment
-          docker-compose down
-          # Remove any existing container to ensure clean state
-          docker rm -f github-actions-dashboard || true
-          # Pull the latest image
-          docker-compose pull
-          # Start the service
-          docker-compose up -d --build
-          # Show logs for debugging
-          echo "Container logs:"
-          docker logs github-actions-dashboard --tail 50
-          # Check health
-          echo "Health check:"
-          curl -v http://localhost:8000/health
-          
-          # Show logs for debugging
-          echo "Container status after startup:"
-          docker ps -a
-          
-          docker logs github-actions-dashboard || true
-
-          echo "Deployment completed successfully!"
+            # Clean up and restart
+            docker-compose down -v --remove-orphans || true
+            docker system prune -f
+            
+            # Pull and start the service
+            echo ${{ secrets.GH_PAT }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker-compose pull
+            docker-compose up -d
+            
+            # Verify deployment
+            echo "Container status:"
+            docker ps -a
+            
+            echo "Container logs:"
+            docker logs github-actions-dashboard --tail 50
+            
+            echo "Health check:"
+            curl -v http://localhost:8000/health
+            
+            echo "Deployment completed successfully!"
