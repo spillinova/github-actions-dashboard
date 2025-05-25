@@ -73,35 +73,35 @@ jobs:
           # Create docker-compose.yml if it doesn't exist
           if [ ! -f docker-compose.yml ]; then
             cat > docker-compose.yml << 'EOL'
-version: '3.8'
+          version: '3.8'
 
-services:
-  app:
-    image: ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_SHA}
-    container_name: github-actions-dashboard
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./data:/app/data
-    env_file:
-      - .env.docker
-    environment:
-      - GITHUB_TOKEN=${GITHUB_TOKEN}
-      - HOST=0.0.0.0
-      - PORT=8000
-      - PYTHONUNBUFFERED=1
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+          services:
+            app:
+              image: ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_SHA}
+              container_name: github-actions-dashboard
+              restart: unless-stopped
+              ports:
+                - "8000:8000"
+              volumes:
+                - ./data:/app/data
+              env_file:
+                - .env.docker
+              environment:
+                - GITHUB_TOKEN=${GITHUB_TOKEN}
+                - HOST=0.0.0.0
+                - PORT=8000
+                - PYTHONUNBUFFERED=1
+              healthcheck:
+                test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+                interval: 30s
+                timeout: 10s
+                retries: 3
+                start_period: 30s
+              logging:
+                driver: json-file
+                options:
+                  max-size: "10m"
+                  max-file: "3"
 EOL
           fi
 
