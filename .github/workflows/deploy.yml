@@ -7,7 +7,7 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to VPS - ${{ github.event.head_commit && (github.event.head_commit.message | truncate(30, true, '...')) || 'Manual deployment' }}
+    name: Deploy to VPS - ${{ github.event.head_commit && github.event.head_commit.message || 'Manual deployment' }}
     # Add a concurrency group to cancel in-progress runs when a new commit is pushed
     concurrency: 
       group: deploy-${{ github.ref }}
