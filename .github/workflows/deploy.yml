@@ -2,12 +2,16 @@ name: Deploy to VPS
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
   workflow_dispatch:
 
 jobs:
   deploy:
-    name: Deploy to VPS
+    name: Deploy to VPS - ${{ github.event.head_commit && (github.event.head_commit.message | truncate(30, true, '...')) || 'Manual deployment' }}
+    # Add a concurrency group to cancel in-progress runs when a new commit is pushed
+    concurrency: 
+      group: deploy-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     
     steps:
