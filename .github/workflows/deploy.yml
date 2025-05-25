@@ -106,20 +106,20 @@ EOL
           fi
 
           # Create .env file with all required variables
-          cat > .env << EOF
+          cat > .env << 'ENV_EOF'
 GITHUB_TOKEN=$GH_PAT
 HOST=0.0.0.0
 PORT=8000
 PYTHONUNBUFFERED=1
-EOF
+ENV_EOF
 
           # Create a .env file for docker-compose
-          cat > .env.docker << EOF
+          cat > .env.docker << 'DOCKER_EOF'
 GITHUB_TOKEN=$GH_PAT
 HOST=0.0.0.0
 PORT=8000
 PYTHONUNBUFFERED=1
-EOF
+DOCKER_EOF
 
           # Create necessary directories
           mkdir -p data
