@@ -29,7 +29,7 @@ A web application that monitors GitHub Actions workflows across your repositorie
    - `VPS_HOST`: Your VPS IP address or domain
    - `VPS_USER`: SSH username (e.g., `deploy`)
    - `VPS_SSH_KEY`: The private SSH key that matches the public key on your VPS
-   - `VPS_DEPLOY_PATH`: Path where the app will be deployed (e.g., `/opt/github-actions-dashboard`)
+   - `VPS_DEPLOY_PATH`: Path where the app will be deployed (e.g., `/root/github-actions-dashboard`)
    - `GH_PAT`: GitHub Personal Access Token with `repo` and `workflow` scopes (Note: The secret name must not start with 'GITHUB_')
 
 4. **Push to main branch**

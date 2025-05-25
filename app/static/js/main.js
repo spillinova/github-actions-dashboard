@@ -21,7 +21,7 @@ async function initializeDashboard() {
 
 async function loadRepositories() {
     try {
-        const response = await fetch('/repos');
+        const response = await fetch('/api/repos');
         const repos = await response.json();
         
         const container = document.getElementById('repo-container');
@@ -65,7 +65,7 @@ async function loadWorkflows(owner, repo, container) {
         container.appendChild(repoElement);
         
         // Fetch workflows for this repository
-        const response = await fetch(`/workflows/${owner}/${repo}`);
+        const response = await fetch(`/api/workflows/${owner}/${repo}`);
         const workflows = await response.json();
         
         const workflowList = document.getElementById(`workflows-${owner}-${repo}`);
@@ -99,7 +99,7 @@ async function loadWorkflows(owner, repo, container) {
 
 async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container) {
     try {
-        const response = await fetch(`/workflow-runs/${owner}/${repo}/${workflowId}?per_page=3`);
+        const response = await fetch(`/api/workflow-runs/${owner}/${repo}/${workflowId}?per_page=3`);
         const runs = await response.json();
         
         if (!runs || runs.length === 0) {
@@ -152,7 +152,7 @@ async function handleAddRepo(event) {
     }
     
     try {
-        const response = await fetch('/add-repo', {
+        const response = await fetch('/api/repos/add', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
