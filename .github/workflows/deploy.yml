@@ -73,50 +73,53 @@ jobs:
           # Create docker-compose.yml if it doesn't exist
           if [ ! -f docker-compose.yml ]; then
             cat > docker-compose.yml << 'EOL'
-          version: '3.8'
+version: '3.8'
 
-          services:
-            app:
-              image: ghcr.io/${{ github.repository_owner }}/github-actions-dashboard:latest
-              container_name: github-actions-dashboard
-              restart: unless-stopped
-              ports:
-                - "8000:8000"
-              volumes:
-                - ./data:/app/data
-              environment:
-                - GITHUB_TOKEN=${GITHUB_TOKEN}
-                - HOST=0.0.0.0
-                - PORT=8000
-                - PYTHONUNBUFFERED=1
-              healthcheck:
-                test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-                interval: 30s
-                timeout: 10s
-                retries: 3
-                start_period: 30s
-              logging:
-                driver: json-file
-                options:
-                  max-size: "10m"
-                  max-file: "3"
-          EOL
+services:
+  app:
+    image: ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_SHA}
+    container_name: github-actions-dashboard
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env.docker
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - HOST=0.0.0.0
+      - PORT=8000
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+EOL
           fi
 
-          # Create .env file if it doesn't exist
-          if [ ! -f .env ]; then
-            echo "GITHUB_TOKEN=$GH_PAT" > .env
-            echo "HOST=0.0.0.0" >> .env
-            echo "PORT=8000" >> .env
-            echo "# Add any additional environment variables here" >> .env
-          else
-            # Update GITHUB_TOKEN if it already exists in .env
-            if grep -q "^GITHUB_TOKEN=" .env; then
-              sed -i "s|^GITHUB_TOKEN=.*|GITHUB_TOKEN=$GH_PAT|" .env
-            else
-              echo "GITHUB_TOKEN=$GH_PAT" >> .env
-            fi
-          fi
+          # Create .env file with all required variables
+          cat > .env << EOF
+GITHUB_TOKEN=$GH_PAT
+HOST=0.0.0.0
+PORT=8000
+PYTHONUNBUFFERED=1
+EOF
+
+          # Create a .env file for docker-compose
+          cat > .env.docker << EOF
+GITHUB_TOKEN=$GH_PAT
+HOST=0.0.0.0
+PORT=8000
+PYTHONUNBUFFERED=1
+EOF
 
           # Create necessary directories
           mkdir -p data
@@ -131,14 +134,25 @@ jobs:
           # Clean up old images and containers
           docker system prune -f
 
-          # Start the application with a clean build
-          docker-compose up -d --build --force-recreate --remove-orphans
+          # Restart the container with new environment
+          docker-compose down
+          # Remove any existing container to ensure clean state
+          docker rm -f github-actions-dashboard || true
+          # Pull the latest image
+          docker-compose pull
+          # Start the service
+          docker-compose up -d --build
+          # Show logs for debugging
+          echo "Container logs:"
+          docker logs github-actions-dashboard --tail 50
+          # Check health
+          echo "Health check:"
+          curl -v http://localhost:8000/health
           
           # Show logs for debugging
           echo "Container status after startup:"
           docker ps -a
           
-          echo "\nContainer logs:"
           docker logs github-actions-dashboard || true
 
           echo "Deployment completed successfully!"
