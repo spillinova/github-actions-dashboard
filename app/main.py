@@ -58,34 +58,40 @@ async def list_my_repos(q: str = None):
         # Get the authenticated user
         user = github.get_user()
         
-        # Get all repositories for the authenticated user
+        # Get all repositories for the authenticated user, including private ones
         repos = []
-        for repo in user.get_repos(sort="updated", direction="desc"):
-            # If search term is provided, filter by it
-            if q and q.lower() not in repo.name.lower() and (repo.description and q.lower() not in repo.description.lower()):
-                continue
+        # Get repositories with visibility=all to include private repos
+        for repo in user.get_repos(sort="updated", direction="desc", visibility="all"):
+            try:
+                # If search term is provided, filter by it
+                if q and q.lower() not in repo.name.lower() and (repo.description and q.lower() not in repo.description.lower()):
+                    continue
+                    
+                repos.append({
+                    "id": repo.id,
+                    "name": repo.name,
+                    "full_name": repo.full_name,
+                    "owner": {
+                        "login": repo.owner.login,
+                        "avatar_url": repo.owner.avatar_url,
+                        "html_url": repo.owner.html_url
+                    },
+                    "html_url": repo.html_url,
+                    "description": repo.description,
+                    "stargazers_count": repo.stargazers_count,
+                    "forks_count": repo.forks_count,
+                    "language": repo.language,
+                    "updated_at": repo.updated_at.isoformat(),
+                    "private": repo.private
+                })
                 
-            repos.append({
-                "id": repo.id,
-                "name": repo.name,
-                "full_name": repo.full_name,
-                "owner": {
-                    "login": repo.owner.login,
-                    "avatar_url": repo.owner.avatar_url,
-                    "html_url": repo.owner.html_url
-                },
-                "html_url": repo.html_url,
-                "description": repo.description,
-                "stargazers_count": repo.stargazers_count,
-                "forks_count": repo.forks_count,
-                "language": repo.language,
-                "updated_at": repo.updated_at.isoformat(),
-                "private": repo.private
-            })
-            
-            # Limit to 30 most recently updated repos for performance
-            if len(repos) >= 30:
-                break
+                # Limit to 50 most recently updated repos for better coverage
+                if len(repos) >= 50:
+                    break
+                    
+            except Exception as e:
+                logger.warning(f"Error processing repository {repo.full_name}: {str(e)}")
+                continue
                 
         return {"items": repos}
         
