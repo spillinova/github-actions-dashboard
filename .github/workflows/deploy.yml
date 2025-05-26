@@ -89,11 +89,12 @@ jobs:
                   - PORT=8000
                   - PYTHONUNBUFFERED=1
                 healthcheck:
-                  test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8000/health"]
-                  interval: 10s
+                  test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "--timeout=5", "http://localhost:8000/health"]
+                  interval: 15s
                   timeout: 10s
-                  retries: 12
-                  start_period: 30s
+                  retries: 10
+                  start_period: 60s
+                  disable: false
                 logging:
                   driver: json-file
                   options:
@@ -131,26 +132,67 @@ jobs:
 
             # Wait for container to be healthy
             echo "Waiting for container to be healthy..."
-            MAX_RETRIES=12
+            MAX_RETRIES=24
             RETRY_DELAY=5
             i=1
-            
+            container_healthy=false
+
+            # First, wait for container to be running
+            while [ $i -le $MAX_RETRIES ]; do
+                CONTAINER_STATE=$(docker inspect --format='{{.State.Status}}' github-actions-dashboard 2>/dev/null || echo "starting")
+                
+                if [ "$CONTAINER_STATE" = "running" ]; then
+                    echo "Container is running, checking health status..."
+                    break
+                fi
+                
+                if [ $i -eq $MAX_RETRIES ]; then
+                    echo "Container failed to start after $((MAX_RETRIES * RETRY_DELAY)) seconds"
+                    echo "Container state: $CONTAINER_STATE"
+                    docker ps -a
+                    exit 1
+                fi
+                
+                echo "Waiting for container to start (attempt $i/$MAX_RETRIES), current state: $CONTAINER_STATE"
+                sleep $RETRY_DELAY
+                i=$((i + 1))
+            done
+
+            # Reset counter for health check
+            i=1
+
+            # Now check health status
             while [ $i -le $MAX_RETRIES ]; do
                 CONTAINER_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' github-actions-dashboard 2>/dev/null || echo "starting")
                 
                 if [ "$CONTAINER_HEALTH" = "healthy" ]; then
                     echo "Container is healthy!"
+                    container_healthy=true
                     break
                 fi
                 
-                if [ $i -eq $MAX_RETRIES ]; then
-                    echo "Container failed to become healthy after $((MAX_RETRIES * RETRY_DELAY)) seconds"
-                    echo "Container status: $CONTAINER_HEALTH"
+                # If container is running but health check is failing, show more details
+                if [ "$CONTAINER_HEALTH" = "unhealthy" ] || [ $i -gt $((MAX_RETRIES / 2)) ]; then
+                    echo "Container health check failing, showing debug info..."
+                    echo "=== Container logs ==="
                     docker logs github-actions-dashboard --tail 50
+                    echo -e "\n=== Checking if port 8000 is listening ==="
+                    docker exec github-actions-dashboard sh -c "netstat -tuln | grep 8000 || echo 'Port 8000 not found in listening state'"
+                    echo -e "\n=== Checking processes ==="
+                    docker top github-actions-dashboard
+                fi
+                
+                if [ $i -eq $MAX_RETRIES ]; then
+                    echo "Container failed health check after $((MAX_RETRIES * RETRY_DELAY)) seconds"
+                    echo "Container health status: $CONTAINER_HEALTH"
+                    echo -e "\n=== Final container logs ==="
+                    docker logs github-actions-dashboard --tail 100
+                    echo -e "\n=== Container inspect ==="
+                    docker inspect github-actions-dashboard
                     exit 1
                 fi
                 
-                echo "Container status: $CONTAINER_HEALTH (attempt $i/$MAX_RETRIES)"
+                echo "Container health status: $CONTAINER_HEALTH (attempt $i/$MAX_RETRIES)"
                 sleep $RETRY_DELAY
                 i=$((i + 1))
             done
