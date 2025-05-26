@@ -39,8 +39,17 @@ def get_github_client():
             user = g.get_user()
             logger.info(f"Connected to GitHub as {user.login}")
             # Try to access private repos to verify permissions
-            # Using list() to force evaluation and catch any permission errors
-            list(user.get_repos(type='private', per_page=1))
+            # Get first private repo (without per_page parameter for compatibility)
+            try:
+                for repo in user.get_repos():
+                    if getattr(repo, 'private', False):
+                        repo_name = getattr(repo, 'full_name', 'unknown')
+                        logger.info(f"Successfully accessed private repository: {repo_name}")
+                        break
+            except Exception as e:
+                logger.warning(f"Warning checking private repositories: {str(e)}")
+                # Continue even if we can't check private repos, as the token might still work
+                pass
         except Exception as e:
             logger.error(f"GitHub token permissions error: {str(e)}")
             return None
@@ -73,76 +82,111 @@ async def list_my_repos(q: str = None):
         user = github.get_user()
         logger.info(f"Fetching repositories for user: {user.login}")
         
-        repos = []
-        try:
-            # Get all repositories including private ones
-            # Note: Using pagination with list() to be compatible with older PyGithub versions
-            all_repos = list(user.get_repos(
-                sort="updated",
-                direction="desc",
-                type="all"  # This includes both public and private repos
-            ))
-            
-            # Process repositories
-            for repo in all_repos:
-                try:
-                    # Get repository details safely
-                    repo_name = getattr(repo, 'name', '')
-                    repo_description = getattr(repo, 'description', '')
-                    repo_private = getattr(repo, 'private', False)
-                    
-                    # If search term is provided, filter by it
-                    search_lower = q.lower() if q else ""
-                    if q and search_lower not in repo_name.lower() and \
-                       (not repo_description or search_lower not in repo_description.lower()):
-                        continue
-                    
-                    # Get owner details safely
-                    owner = getattr(repo, 'owner', {})
-                    owner_login = getattr(owner, 'login', 'unknown')
-                    owner_avatar = getattr(owner, 'avatar_url', '')
-                    owner_url = getattr(owner, 'html_url', '')
-                    
-                    # Format the repository data
-                    repo_data = {
-                        "id": getattr(repo, 'id', 0),
-                        "name": repo_name,
-                        "full_name": getattr(repo, 'full_name', f"{owner_login}/{repo_name}"),
-                        "owner": {
-                            "login": owner_login,
-                            "avatar_url": owner_avatar,
-                            "html_url": owner_url
-                        },
-                        "html_url": getattr(repo, 'html_url', f"https://github.com/{owner_login}/{repo_name}"),
-                        "description": repo_description,
-                        "stargazers_count": getattr(repo, 'stargazers_count', 0),
-                        "forks_count": getattr(repo, 'forks_count', 0),
-                        "language": getattr(repo, 'language', None),
-                        "updated_at": getattr(repo, 'updated_at', '').isoformat() if hasattr(repo, 'updated_at') else '',
-                        "private": repo_private
-                    }
-                    
-                    repos.append(repo_data)
-                    
-                    # Log the first few repos for debugging
-                    if len(repos) <= 5:
-                        logger.info(f"Found repo: {repo.full_name} (private: {repo.private})")
-                    
-                    # Limit to 100 most recently updated repos for better coverage
-                    if len(repos) >= 100:
-                        logger.info("Reached repository limit (100)")
-                        break
-                        
-                except Exception as e:
-                    logger.warning(f"Error processing repository {getattr(repo, 'full_name', 'unknown')}: {str(e)}")
-                    continue
-                    
-        except Exception as e:
-            logger.error(f"Error fetching repositories: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error fetching repositories: {str(e)}")
+        # Get all repositories including private ones
+        # Using a generator to handle pagination manually for compatibility
+        all_repos = []
+        logger.info("Fetching repositories...")
         
-        logger.info(f"Returning {len(repos)} repositories (filtered by search: {'yes' if q else 'no'})")
-        return {"items": repos}
+        try:
+            repos = user.get_repos()
+        except Exception as e:
+            logger.error(f"Error getting repositories: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error getting repositories: {str(e)}")
+        
+        batch_size = 30
+        batch = []
+        repo_count = 0
+        
+        # Process repositories in batches
+        for repo in repos:
+            try:
+                # Skip if we've reached our limit
+                if repo_count >= 100:
+                    logger.info("Reached repository limit (100)")
+                    break
+                    
+                # Add to current batch
+                batch.append(repo)
+                repo_count += 1
+                
+                # Process batch if it reaches batch size
+                if len(batch) >= batch_size:
+                    all_repos.extend(batch)
+                    batch = []
+                    logger.info(f"Fetched {repo_count} repositories so far...")
+            except Exception as e:
+                logger.warning(f"Error processing repository: {str(e)}")
+                continue
+        
+        # Add any remaining repos from the last batch
+        if batch:
+            all_repos.extend(batch)
+        
+        logger.info(f"Total repositories fetched: {repo_count}")
+        
+        # Process repositories for output
+        processed_repos = []
+        
+        for repo in all_repos:
+            try:
+                # Get repository details safely
+                repo_name = getattr(repo, 'name', '')
+                repo_description = getattr(repo, 'description', '')
+                repo_private = getattr(repo, 'private', False)
+                
+                # If search term is provided, filter by it
+                search_lower = q.lower() if q else ""
+                if q and search_lower not in repo_name.lower() and \
+                   (not repo_description or search_lower not in repo_description.lower()):
+                    continue
+                
+                # Get owner details safely
+                owner = getattr(repo, 'owner', {})
+                owner_login = getattr(owner, 'login', 'unknown')
+                owner_avatar = getattr(owner, 'avatar_url', '')
+                owner_url = getattr(owner, 'html_url', '')
+                
+                # Format the repository data
+                repo_data = {
+                    "id": getattr(repo, 'id', 0),
+                    "name": repo_name,
+                    "full_name": getattr(repo, 'full_name', f"{owner_login}/{repo_name}"),
+                    "owner": {
+                        "login": owner_login,
+                        "avatar_url": owner_avatar,
+                        "html_url": owner_url
+                    },
+                    "html_url": getattr(repo, 'html_url', f"https://github.com/{owner_login}/{repo_name}"),
+                    "description": repo_description,
+                    "stargazers_count": getattr(repo, 'stargazers_count', 0),
+                    "forks_count": getattr(repo, 'forks_count', 0),
+                    "language": getattr(repo, 'language', None),
+                    "updated_at": getattr(repo, 'updated_at', '').isoformat() if hasattr(repo, 'updated_at') else '',
+                    "private": repo_private
+                }
+                
+                processed_repos.append(repo_data)
+                
+                # Log the first few repos for debugging
+                if len(processed_repos) <= 5:
+                    logger.info(f"Found repo: {repo_name} (private: {repo_private})")
+                
+                # Limit to 100 most recent repos for better coverage
+                if len(processed_repos) >= 100:
+                    logger.info("Reached repository limit (100)")
+                    break
+                    
+            except Exception as e:
+                repo_full_name = f"{getattr(repo, 'owner', '')}/{getattr(repo, 'name', 'unknown')}"
+                logger.warning(f"Error processing repository {repo_full_name}: {str(e)}")
+                continue
+                
+                logger.info(f"Returning {len(processed_repos)} repositories (filtered by search: {'yes' if q else 'no'})")
+                return {"items": processed_repos}
+                
+            except Exception as e:
+                logger.error(f"Error fetching repositories: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error fetching repositories: {str(e)}")
         
     except Exception as e:
         logger.error(f"Error searching repositories: {str(e)}")
