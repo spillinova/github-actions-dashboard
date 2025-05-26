@@ -145,27 +145,42 @@ async def get_workflows(owner: str, repo: str):
             try:
                 runs = w.get_runs()
                 latest_run = runs[0] if runs.totalCount > 0 else None
-                workflows.append({
+                
+                workflow_data = {
                     "id": w.id,
                     "name": w.name,
                     "state": w.state,
                     "path": w.path,
                     "created_at": w.created_at.isoformat() if w.created_at else None,
                     "updated_at": w.updated_at.isoformat() if w.updated_at else None,
+                    "url": w.url,
+                    "html_url": w.html_url,
+                    "badge_url": w.badge_url,
                     "latest_run": {
                         "id": latest_run.id if latest_run else None,
                         "status": latest_run.status if latest_run else None,
                         "conclusion": latest_run.conclusion if latest_run else None,
-                        "created_at": latest_run.created_at.isoformat() if latest_run and hasattr(latest_run, 'created_at') else None,
-                        "updated_at": latest_run.updated_at.isoformat() if latest_run and hasattr(latest_run, 'updated_at') else None,
-                    } if latest_run else None
-                })
-            except Exception as workflow_error:
-                logger.warning(f"Error processing workflow {w.id}: {workflow_error}")
+                        "created_at": latest_run.created_at.isoformat() if latest_run and latest_run.created_at else None,
+                        "updated_at": latest_run.updated_at.isoformat() if latest_run and latest_run.updated_at else None,
+                        "html_url": latest_run.html_url if latest_run else None
+                    }
+                }
+                
+                workflows.append(workflow_data)
+                
+            except Exception as e:
+                logger.error(f"Error processing workflow {getattr(w, 'id', 'unknown')}: {str(e)}")
                 continue
                 
         return {"workflows": workflows}
         
+    except HTTPException as he:
+        logger.error(f"HTTP error in get_workflows: {str(he.detail)}")
+        raise
+    except Exception as e:
+        error_msg = f"Failed to fetch workflows: {str(e)}"
+        logger.error(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
     except HTTPException:
         raise
     except Exception as e:
