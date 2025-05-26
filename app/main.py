@@ -377,23 +377,61 @@ async def get_workflow_runs(owner: str, repo: str, workflow_id: str, per_page: i
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
+    # Basic app health check - don't fail just because of GitHub API
     try:
-        github = get_github_client()
-        if not github:
-            return JSONResponse(
-                status_code=500,
-                content={"status": "error", "message": "GitHub client not initialized"}
-            )
-        
-        # Test GitHub API connection
-        github.get_user().login
-        return {"status": "healthy", "github_connected": True}
-        
+        # Check if the app is running
+        return {
+            "status": "healthy",
+            "app": "running",
+            "timestamp": datetime.utcnow().isoformat()
+        }
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
         return JSONResponse(
             status_code=500,
-            content={"status": "error", "message": f"Health check failed: {str(e)}"}
+            content={
+                "status": "error",
+                "message": "Application error",
+                "error": str(e)
+            }
+        )
+
+@app.get("/health/full")
+async def full_health_check():
+    """Full health check including GitHub API connectivity"""
+    try:
+        # Basic app check
+        github = get_github_client()
+        if not github:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "status": "error",
+                    "message": "GitHub client not initialized",
+                    "github_connected": False
+                }
+            )
+        
+        # Test GitHub API connection
+        user = github.get_user()
+        return {
+            "status": "healthy",
+            "app": "running",
+            "github_connected": True,
+            "github_user": user.login,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Full health check failed: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": "GitHub connection failed",
+                "error": str(e),
+                "github_connected": False
+            }
         )
 
 if __name__ == "__main__":
