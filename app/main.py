@@ -147,32 +147,27 @@ async def list_my_repos(q: str = None):
                 owner = getattr(repo, 'owner', {})
                 owner_login = getattr(owner, 'login', 'unknown')
                 owner_avatar = getattr(owner, 'avatar_url', '')
-                owner_url = getattr(owner, 'html_url', '')
                 
-                # Format the repository data
-                repo_data = {
+                # Add repo to processed repos
+                processed_repos.append({
                     "id": getattr(repo, 'id', 0),
                     "name": repo_name,
-                    "full_name": getattr(repo, 'full_name', f"{owner_login}/{repo_name}"),
+                    "full_name": f"{owner_login}/{repo_name}",
                     "owner": {
                         "login": owner_login,
                         "avatar_url": owner_avatar,
-                        "html_url": owner_url
+                        "html_url": f"https://github.com/{owner_login}"
                     },
-                    "html_url": getattr(repo, 'html_url', f"https://github.com/{owner_login}/{repo_name}"),
+                    "html_url": f"https://github.com/{owner_login}/{repo_name}",
                     "description": repo_description,
                     "stargazers_count": getattr(repo, 'stargazers_count', 0),
                     "forks_count": getattr(repo, 'forks_count', 0),
                     "language": getattr(repo, 'language', None),
                     "updated_at": getattr(repo, 'updated_at', '').isoformat() if hasattr(repo, 'updated_at') else '',
                     "private": repo_private
-                }
+                })
                 
-                processed_repos.append(repo_data)
-                
-                # Log the first few repos for debugging
-                if len(processed_repos) <= 5:
-                    logger.info(f"Found repo: {repo_name} (private: {repo_private})")
+                logger.info(f"Found repo: {owner_login}/{repo_name} (private: {repo_private})")
                 
                 # Limit to 200 most recent repos for better coverage
                 if len(processed_repos) >= 200:
@@ -180,8 +175,7 @@ async def list_my_repos(q: str = None):
                     break
                     
             except Exception as e:
-                repo_full_name = f"{getattr(repo, 'owner', '')}/{getattr(repo, 'name', 'unknown')}"
-                logger.warning(f"Error processing repository {repo_full_name}: {str(e)}")
+                logger.warning(f"Error processing repository {getattr(repo, 'full_name', 'unknown')}: {str(e)}")
                 continue
         
         logger.info(f"Returning {len(processed_repos)} repositories (filtered by search: {'yes' if q else 'no'})")
