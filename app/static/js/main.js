@@ -1,16 +1,26 @@
 // Main JavaScript for GitHub Actions Dashboard
 
+// Debounce function to limit API calls during search
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize the dashboard
     initializeDashboard();
     
-    // Set up auto-refresh every 30 seconds
-    setInterval(loadRepositories, 30000);
-    
-    // Set up form submission
-    const repoForm = document.getElementById('add-repo-form');
-    if (repoForm) {
-        repoForm.addEventListener('submit', handleAddRepo);
+    // Set up repository search
+    const repoSearch = document.getElementById('repoSearch');
+    if (repoSearch) {
+        repoSearch.addEventListener('input', debounce(handleRepoSearch, 500));
     }
 });
 
@@ -49,38 +59,9 @@ async function initializeDashboard() {
 }
 
 async function loadRepositories() {
-    try {
-        const response = await fetch('/api/repos');
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        const repos = data.repos || [];
-        
-        const container = document.getElementById('repoList');
-        const noReposMessage = document.getElementById('noReposMessage');
-        
-        if (!container || !noReposMessage) {
-            console.error('Required elements not found in the DOM');
-            return;
-        }
-        
-        if (repos.length === 0) {
-            noReposMessage.textContent = 'No repositories found. Make sure your GitHub token has the correct permissions.';
-            return;
-        }
-        
-        // Clear loading state
-        container.innerHTML = '';
-        
-        // Load each repository's workflows
-        for (const repo of repos) {
-            await loadWorkflows(repo.owner, repo.name, container);
-        }
-    } catch (error) {
-        console.error('Error loading repositories:', error);
-        showError('Failed to load repositories. Please try again later.');
-    }
+    // This function is intentionally left empty as we don't want to load all repositories
+    // Repositories are only loaded when explicitly added through the UI
+    return [];
 }
 
 function getSavedRepos() {
@@ -384,6 +365,176 @@ async function handleAddRepo(event) {
         if (submitButton) {
             submitButton.disabled = false;
             submitButton.innerHTML = originalButtonText;
+        }
+    }
+}
+
+// Function to handle repository search
+async function handleRepoSearch(event) {
+    const searchTerm = event.target.value.trim();
+    const resultsContainer = document.getElementById('searchResults');
+    
+    if (!searchTerm) {
+        resultsContainer.innerHTML = `
+            <div class="text-center p-4 text-muted">
+                <i class="bi bi-github" style="font-size: 2rem; opacity: 0.5;"></i>
+                <p class="mt-2 mb-0">Search for repositories to add them to your dashboard</p>
+            </div>`;
+        return;
+    }
+    
+    // Show loading state
+    resultsContainer.innerHTML = `
+        <div class="text-center p-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 mb-0">Searching repositories...</p>
+        </div>`;
+    
+    try {
+        // Search for repositories using the GitHub API
+        const response = await fetch(`/api/search/repos?q=${encodeURIComponent(searchTerm)}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        const repos = data.items || [];
+        
+        if (repos.length === 0) {
+            resultsContainer.innerHTML = `
+                <div class="text-center p-4 text-muted">
+                    <i class="bi bi-search" style="font-size: 2rem; opacity: 0.5;"></i>
+                    <p class="mt-2 mb-0">No repositories found matching "${searchTerm}"</p>
+                </div>`;
+            return;
+        }
+        
+        // Display search results
+        let html = '';
+        const savedRepos = getSavedRepos();
+        
+        repos.forEach(repo => {
+            const isAdded = savedRepos.some(r => 
+                r.owner === repo.owner.login && r.name === repo.name
+            );
+            
+            html += `
+                <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="mb-1">${repo.full_name}</h6>
+                        <p class="mb-1 small text-muted">${repo.description || 'No description'}</p>
+                        <div class="d-flex gap-2">
+                            <span class="badge bg-secondary">${repo.language || 'Unknown'}</span>
+                            <span class="badge bg-light text-dark">
+                                <i class="bi bi-star-fill text-warning"></i> ${repo.stargazers_count.toLocaleString()}
+                            </span>
+                        </div>
+                    </div>
+                    <button class="btn btn-sm ${isAdded ? 'btn-outline-secondary' : 'btn-primary'} add-repo" 
+                            data-owner="${repo.owner.login}" 
+                            data-repo="${repo.name}"
+                            ${isAdded ? 'disabled' : ''}>
+                        ${isAdded ? 'Added' : 'Add'}
+                    </button>
+                </div>`;
+        });
+        
+        resultsContainer.innerHTML = html;
+        
+        // Add event listeners to the Add buttons
+        document.querySelectorAll('.add-repo').forEach(button => {
+            button.addEventListener('click', handleAddRepo);
+        });
+        
+    } catch (error) {
+        console.error('Error searching repositories:', error);
+        resultsContainer.innerHTML = `
+            <div class="alert alert-danger" role="alert">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                Failed to search repositories. Please try again later.
+            </div>`;
+    }
+}
+
+// Handle adding a repository
+async function handleAddRepo(event) {
+    event.preventDefault();
+    
+    let owner, repoName;
+    
+    // Handle both form submission and button click
+    if (event.target.matches('button.add-repo')) {
+        owner = event.target.dataset.owner;
+        repoName = event.target.dataset.repo;
+    } else if (event.target.matches('form')) {
+        const formData = new FormData(event.target);
+        owner = formData.get('owner');
+        repoName = formData.get('repo');
+    } else {
+        return;
+    }
+    
+    // Check if repository is already added
+    const savedRepos = getSavedRepos();
+    if (savedRepos.some(r => r.owner === owner && r.name === repoName)) {
+        showErrorInModal('This repository is already added');
+        return;
+    }
+    
+    // Show loading state
+    const button = event.target.matches('button') ? event.target : event.target.querySelector('button[type="submit"]');
+    const originalText = button ? button.innerHTML : '';
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Adding...';
+    }
+    
+    try {
+        // Add the repository to the list
+        const newRepo = { owner, name: repoName, full_name: `${owner}/${repoName}` };
+        savedRepos.push(newRepo);
+        localStorage.setItem('addedRepos', JSON.stringify(savedRepos));
+        
+        // Update the UI
+        updateReposList(savedRepos);
+        
+        // Close the modal if this was a form submission
+        const modal = bootstrap.Modal.getInstance(document.getElementById('addRepoModal'));
+        if (modal) {
+            modal.hide();
+        }
+        
+        // Reset the form
+        const form = document.getElementById('addRepoForm');
+        if (form) form.reset();
+        
+        // Show success message
+        const successAlert = document.createElement('div');
+        successAlert.className = 'alert alert-success alert-dismissible fade show';
+        successAlert.role = 'alert';
+        successAlert.innerHTML = `
+            <i class="bi bi-check-circle-fill me-2"></i>
+            Successfully added ${owner}/${repoName} to your dashboard.
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+        document.querySelector('main').prepend(successAlert);
+        
+        // Auto-hide the alert after 5 seconds
+        setTimeout(() => {
+            const alert = bootstrap.Alert.getOrCreateInstance(successAlert);
+            alert.close();
+        }, 5000);
+        
+    } catch (error) {
+        console.error('Error adding repository:', error);
+        showErrorInModal('Failed to add repository. Please try again.');
+    } finally {
+        // Reset button state
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = originalText;
         }
     }
 }

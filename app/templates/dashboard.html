@@ -53,30 +53,31 @@
 
     <!-- Add Repository Modal -->
     <div class="modal fade" id="addRepoModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">Add Repository</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <form id="addRepoForm">
-                        <div class="mb-3">
-                            <label for="owner" class="form-label">Owner</label>
-                            <input type="text" class="form-control" id="owner" name="owner" required 
-                                   placeholder="e.g., octocat">
+                    <div class="mb-3">
+                        <label for="repoSearch" class="form-label">Search for a repository</label>
+                        <div class="input-group">
+                            <span class="input-group-text">
+                                <i class="bi bi-search"></i>
+                            </span>
+                            <input type="text" class="form-control" id="repoSearch" 
+                                   placeholder="Search repositories..." autocomplete="off">
                         </div>
-                        <div class="mb-3">
-                            <label for="repo" class="form-label">Repository</label>
-                            <input type="text" class="form-control" id="repo" name="repo" required
-                                   placeholder="e.g., Hello-World">
+                    </div>
+                    
+                    <div id="searchResults" class="list-group mt-3" style="max-height: 400px; overflow-y: auto;">
+                        <div class="text-center p-4 text-muted">
+                            <i class="bi bi-github" style="font-size: 2rem; opacity: 0.5;"></i>
+                            <p class="mt-2 mb-0">Search for repositories to add them to your dashboard</p>
                         </div>
-                        <div class="d-grid gap-2">
-                            <button type="submit" class="btn btn-primary">
-                                <i class="bi bi-plus-lg me-1"></i> Add Repository
-                            </button>
-                        </div>
-                    </form>
+                    </div>
+                    
                     <div id="repoError" class="alert alert-danger mt-3 mb-0 d-none" role="alert"></div>
                 </div>
             </div>

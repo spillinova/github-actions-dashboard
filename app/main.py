@@ -45,6 +45,45 @@ class RepoConfig(BaseModel):
 # In-memory storage for selected repositories
 selected_repos: List[Dict[str, str]] = []
 
+@app.get("/api/search/repos")
+async def search_repos(q: str):
+    """
+    Search for repositories on GitHub
+    """
+    try:
+        github = get_github_client()
+        if not github:
+            raise HTTPException(status_code=500, detail="GitHub client not available")
+            
+        # Search for repositories
+        result = github.search_repositories(q, sort="stars", order="desc")
+        
+        # Convert to a list of dicts with the fields we need
+        repos = []
+        for repo in result[:10]:  # Limit to top 10 results
+            repos.append({
+                "id": repo.id,
+                "name": repo.name,
+                "full_name": repo.full_name,
+                "owner": {
+                    "login": repo.owner.login,
+                    "avatar_url": repo.owner.avatar_url,
+                    "html_url": repo.owner.html_url
+                },
+                "html_url": repo.html_url,
+                "description": repo.description,
+                "stargazers_count": repo.stargazers_count,
+                "forks_count": repo.forks_count,
+                "language": repo.language,
+                "updated_at": repo.updated_at.isoformat()
+            })
+            
+        return {"items": repos}
+        
+    except Exception as e:
+        logger.error(f"Error searching repositories: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/repos")
 async def list_repos():
     try:
