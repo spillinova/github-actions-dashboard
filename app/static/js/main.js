@@ -28,17 +28,16 @@ async function loadRepositories() {
         const data = await response.json();
         const repos = data.repos || [];
         
-        const container = document.getElementById('repo-container');
-        if (!container) {
-            console.error('Repo container not found');
+        const container = document.getElementById('repoList');
+        const noReposMessage = document.getElementById('noReposMessage');
+        
+        if (!container || !noReposMessage) {
+            console.error('Required elements not found in the DOM');
             return;
         }
         
         if (repos.length === 0) {
-            container.innerHTML = `
-                <div class="no-repos">
-                    <p>No repositories found. Make sure your GitHub token has the correct permissions.</p>
-                </div>`;
+            noReposMessage.textContent = 'No repositories found. Make sure your GitHub token has the correct permissions.';
             return;
         }
         
