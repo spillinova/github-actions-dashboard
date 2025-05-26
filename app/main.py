@@ -86,10 +86,11 @@ async def list_my_repos(q: str = None):
         # Get all repositories including private ones
         # Using a generator to handle pagination manually for compatibility
         all_repos = []
-        logger.info("Fetching repositories...")
+        logger.info("Fetching repositories (including private ones)...")
         
         try:
-            repos = user.get_repos()
+            # Explicitly fetch all repositories (both public and private)
+            repos = user.get_repos(affiliation='owner,collaborator,organization_member', sort='updated', direction='desc')
         except Exception as e:
             logger.error(f"Error getting repositories: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error getting repositories: {str(e)}")
@@ -102,8 +103,8 @@ async def list_my_repos(q: str = None):
         for repo in repos:
             try:
                 # Skip if we've reached our limit
-                if repo_count >= 100:
-                    logger.info("Reached repository limit (100)")
+                if repo_count >= 200:  # Increased limit to get more repositories
+                    logger.info("Reached repository limit (200)")
                     break
                     
                 # Add to current batch
@@ -172,9 +173,9 @@ async def list_my_repos(q: str = None):
                 if len(processed_repos) <= 5:
                     logger.info(f"Found repo: {repo_name} (private: {repo_private})")
                 
-                # Limit to 100 most recent repos for better coverage
-                if len(processed_repos) >= 100:
-                    logger.info("Reached repository limit (100)")
+                # Limit to 200 most recent repos for better coverage
+                if len(processed_repos) >= 200:
+                    logger.info("Reached repository limit (200)")
                     break
                     
             except Exception as e:
