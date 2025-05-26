@@ -81,22 +81,44 @@ function renderRepositories(repos, title) {
                 <p class="mt-2 mb-0">No repositories found</p>
             </div>`;
     } else {
-        repos.forEach(repo => {
+        // Sort repositories with private ones first, then by name
+        const sortedRepos = [...repos].sort((a, b) => {
+            if (a.private !== b.private) {
+                return b.private - a.private; // Private repos first
+            }
+            return a.name.localeCompare(b.name); // Then sort by name
+        });
+
+        sortedRepos.forEach(repo => {
+            const isPrivate = repo.private || false;
+            const ownerLogin = repo.owner?.login || 'unknown';
+            const repoName = repo.name || 'unknown';
             const isAdded = savedRepos.some(r => 
-                r.owner === repo.owner.login && r.name === repo.name
+                r.owner === ownerLogin && r.name === repoName
             );
             
+            // Format the updated_at date safely
+            let updatedAt = 'Unknown';
+            try {
+                updatedAt = repo.updated_at ? new Date(repo.updated_at).toLocaleDateString() : 'Unknown';
+            } catch (e) {
+                console.warn('Invalid date format for repo:', repoName, e);
+            }
+            
             html += `
-                <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-start">
                     <div class="flex-grow-1 me-3">
                         <div class="d-flex align-items-center">
                             <h6 class="mb-0">
-                                ${repo.private ? '<i class="bi bi-lock-fill text-warning me-1"></i>' : ''}
-                                ${repo.name}
+                                ${isPrivate ? '<i class="bi bi-lock-fill text-warning me-1" title="Private repository"></i>' : ''}
+                                <a href="${repo.html_url || '#'}" target="_blank" class="text-decoration-none text-dark">
+                                    ${repoName}
+                                </a>
+                                <small class="text-muted ms-2">${ownerLogin}</small>
                             </h6>
                         </div>
                         ${repo.description ? `<p class="mb-1 small text-muted text-truncate">${repo.description}</p>` : ''}
-                        <div class="d-flex gap-2 mt-1">
+                        <div class="d-flex flex-wrap gap-2 align-items-center mt-1">
                             ${repo.language ? `<span class="badge bg-light text-dark">${repo.language}</span>` : ''}
                             <span class="badge bg-light text-dark">
                                 <i class="bi bi-star-fill text-warning"></i> ${repo.stargazers_count?.toLocaleString() || 0}
@@ -104,15 +126,16 @@ function renderRepositories(repos, title) {
                             <span class="badge bg-light text-dark">
                                 <i class="bi bi-git"></i> ${repo.forks_count?.toLocaleString() || 0}
                             </span>
-                            <span class="text-muted small ms-auto">
-                                Updated ${new Date(repo.updated_at).toLocaleDateString()}
+                            <span class="text-muted small">
+                                <i class="bi bi-clock-history"></i> Updated ${updatedAt}
                             </span>
                         </div>
                     </div>
                     <button class="btn btn-sm ${isAdded ? 'btn-outline-secondary' : 'btn-primary'} add-repo" 
-                            data-owner="${repo.owner.login}" 
-                            data-repo="${repo.name}"
-                            ${isAdded ? 'disabled' : ''}>
+                            data-owner="${ownerLogin}" 
+                            data-repo="${repoName}"
+                            ${isAdded ? 'disabled' : ''}
+                            title="${isAdded ? 'Already added' : 'Add to dashboard'}">
                         ${isAdded ? 'Added' : 'Add'}
                     </button>
                 </div>`;
