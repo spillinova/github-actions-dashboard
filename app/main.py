@@ -31,7 +31,25 @@ def get_github_client():
         logger.error("GITHUB_TOKEN environment variable is not set")
         return None
     try:
-        return Github(token)
+        # Create GitHub client with increased timeout and user agent
+        g = Github(
+            token,
+            timeout=30,  # Increase timeout to 30 seconds
+            per_page=100,  # Get more items per page
+            user_agent="GitHub-Actions-Dashboard"
+        )
+        
+        # Test the connection and permissions
+        try:
+            user = g.get_user()
+            logger.info(f"Connected to GitHub as {user.login}")
+            # Try to access private repos to verify permissions
+            user.get_repos(visibility='private', per_page=1)
+        except Exception as e:
+            logger.error(f"GitHub token permissions error: {str(e)}")
+            return None
+            
+        return g
     except Exception as e:
         logger.error(f"Failed to initialize GitHub client: {e}")
         return None
@@ -48,7 +66,7 @@ selected_repos: List[Dict[str, str]] = []
 @app.get("/api/my-repos")
 async def list_my_repos(q: str = None):
     """
-    List the authenticated user's repositories, optionally filtered by search term
+    List the authenticated user's repositories, including private ones
     """
     try:
         github = get_github_client()
@@ -57,42 +75,63 @@ async def list_my_repos(q: str = None):
         
         # Get the authenticated user
         user = github.get_user()
+        logger.info(f"Fetching repositories for user: {user.login}")
         
-        # Get all repositories for the authenticated user, including private ones
         repos = []
-        # Get repositories with visibility=all to include private repos
-        for repo in user.get_repos(sort="updated", direction="desc", visibility="all"):
-            try:
-                # If search term is provided, filter by it
-                if q and q.lower() not in repo.name.lower() and (repo.description and q.lower() not in repo.description.lower()):
+        try:
+            # First try to get all repositories including private ones
+            all_repos = user.get_repos(
+                sort="updated",
+                direction="desc",
+                visibility="all",
+                affiliation="owner,collaborator"
+            )
+            
+            # Process repositories
+            for repo in all_repos:
+                try:
+                    # If search term is provided, filter by it
+                    search_lower = q.lower() if q else ""
+                    if q and search_lower not in repo.name.lower() and \
+                       (not repo.description or search_lower not in repo.description.lower()):
+                        continue
+                    
+                    repos.append({
+                        "id": repo.id,
+                        "name": repo.name,
+                        "full_name": repo.full_name,
+                        "owner": {
+                            "login": repo.owner.login,
+                            "avatar_url": repo.owner.avatar_url,
+                            "html_url": repo.owner.html_url
+                        },
+                        "html_url": repo.html_url,
+                        "description": repo.description,
+                        "stargazers_count": repo.stargazers_count,
+                        "forks_count": repo.forks_count,
+                        "language": repo.language,
+                        "updated_at": repo.updated_at.isoformat(),
+                        "private": repo.private
+                    })
+                    
+                    # Log the first few repos for debugging
+                    if len(repos) <= 5:
+                        logger.info(f"Found repo: {repo.full_name} (private: {repo.private})")
+                    
+                    # Limit to 100 most recently updated repos for better coverage
+                    if len(repos) >= 100:
+                        logger.info("Reached repository limit (100)")
+                        break
+                        
+                except Exception as e:
+                    logger.warning(f"Error processing repository {getattr(repo, 'full_name', 'unknown')}: {str(e)}")
                     continue
                     
-                repos.append({
-                    "id": repo.id,
-                    "name": repo.name,
-                    "full_name": repo.full_name,
-                    "owner": {
-                        "login": repo.owner.login,
-                        "avatar_url": repo.owner.avatar_url,
-                        "html_url": repo.owner.html_url
-                    },
-                    "html_url": repo.html_url,
-                    "description": repo.description,
-                    "stargazers_count": repo.stargazers_count,
-                    "forks_count": repo.forks_count,
-                    "language": repo.language,
-                    "updated_at": repo.updated_at.isoformat(),
-                    "private": repo.private
-                })
-                
-                # Limit to 50 most recently updated repos for better coverage
-                if len(repos) >= 50:
-                    break
-                    
-            except Exception as e:
-                logger.warning(f"Error processing repository {repo.full_name}: {str(e)}")
-                continue
-                
+        except Exception as e:
+            logger.error(f"Error fetching repositories: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error fetching repositories: {str(e)}")
+        
+        logger.info(f"Returning {len(repos)} repositories (filtered by search: {'yes' if q else 'no'})")
         return {"items": repos}
         
     except Exception as e:
