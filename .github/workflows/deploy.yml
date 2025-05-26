@@ -73,7 +73,6 @@ jobs:
             cat > docker-compose.yml << 'EOF'
             version: '3.8'
 
-
             services:
               app:
                 image: ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
@@ -90,11 +89,11 @@ jobs:
                   - PORT=8000
                   - PYTHONUNBUFFERED=1
                 healthcheck:
-                  test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/health"]
+                  test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8000/health"]
                   interval: 10s
-                  timeout: 5s
-                  retries: 6
-                  start_period: 10s
+                  timeout: 10s
+                  retries: 12
+                  start_period: 30s
                 logging:
                   driver: json-file
                   options:

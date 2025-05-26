@@ -1,3 +1,4 @@
+import sys
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -377,17 +378,43 @@ async def get_workflow_runs(owner: str, repo: str, workflow_id: str, per_page: i
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    # Basic app health check - don't fail just because of GitHub API
     try:
-        # Simple response with minimal processing
-        return JSONResponse(
-            status_code=200,
-            content={
-                "status": "healthy",
-                "app": "running",
-                "timestamp": datetime.utcnow().isoformat()
+        # Basic response with minimal processing
+        response = {
+            "status": "healthy",
+            "app": "github-actions-dashboard",
+            "version": "1.0.0",
+            "timestamp": datetime.utcnow().isoformat(),
+            "system": {
+                "python_version": ".".join(map(str, sys.version_info[:3])),
+                "platform": sys.platform
+            },
+            "endpoints": {
+                "api": "/api",
+                "docs": "/docs",
+                "dashboard": "/"
             }
-        )
+        }
+        
+        # Try to get GitHub status if possible (but don't fail if it doesn't work)
+        try:
+            github = get_github_client()
+            if github:
+                user = github.get_user()
+                response["github"] = {
+                    "authenticated": True,
+                    "username": user.login,
+                    "rate_limit": github.get_rate_limit().core.remaining
+                }
+        except Exception as e:
+            logger.debug(f"GitHub status check skipped: {str(e)}")
+            response["github"] = {
+                "authenticated": False,
+                "error": str(e)
+            }
+            
+        return JSONResponse(status_code=200, content=response)
+        
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
         return JSONResponse(
