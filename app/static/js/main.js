@@ -22,15 +22,22 @@ async function initializeDashboard() {
 async function loadRepositories() {
     try {
         const response = await fetch('/api/repos');
-        const repos = await response.json();
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        const repos = data.repos || [];
         
         const container = document.getElementById('repo-container');
-        if (!container) return;
+        if (!container) {
+            console.error('Repo container not found');
+            return;
+        }
         
         if (repos.length === 0) {
             container.innerHTML = `
                 <div class="no-repos">
-                    <p>No repositories added yet. Add a repository to get started.</p>
+                    <p>No repositories found. Make sure your GitHub token has the correct permissions.</p>
                 </div>`;
             return;
         }

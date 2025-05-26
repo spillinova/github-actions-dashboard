@@ -45,6 +45,39 @@ class RepoConfig(BaseModel):
 # In-memory storage for selected repositories
 selected_repos: List[Dict[str, str]] = []
 
+@app.get("/api/repos")
+async def list_repos():
+    try:
+        github = get_github_client()
+        if not github:
+            raise HTTPException(status_code=500, detail="GitHub authentication not properly configured")
+            
+        user = github.get_user()
+        if not user:
+            raise HTTPException(status_code=401, detail="Failed to authenticate with GitHub")
+            
+        repos = []
+        for repo in user.get_repos():
+            try:
+                repos.append({
+                    "owner": repo.owner.login,
+                    "name": repo.name,
+                    "full_name": repo.full_name,
+                    "private": repo.private,
+                    "description": repo.description
+                })
+            except Exception as repo_error:
+                logger.warning(f"Error fetching repo {repo.name if hasattr(repo, 'name') else 'unknown'}: {repo_error}")
+                continue
+                
+        return {"repos": repos}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in list_repos: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch repositories: {str(e)}")
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     return templates.TemplateResponse("dashboard.html", {"request": request})
