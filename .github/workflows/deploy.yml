@@ -121,14 +121,35 @@ jobs:
             docker-compose pull
             docker-compose up -d
             
-            # Verify deployment
-            echo "Container status:"
+            # Wait for container to be healthy
+            echo "Waiting for container to be healthy..."
+            for i in {1..10}; do
+              if docker ps | grep -q "github-actions-dashboard.*healthy"; then
+                echo "Container is healthy!"
+                break
+              elif [ $i -eq 10 ]; then
+                echo "Container failed to become healthy after 30 seconds"
+                docker logs github-actions-dashboard --tail 50
+                exit 1
+              else
+                echo "Waiting for container to be healthy (attempt $i/10)..."
+                sleep 3
+              fi
+            done
+
+            # Show container status and logs
+            echo -e "\n=== Container status ==="
             docker ps -a
             
-            echo "Container logs:"
-            docker logs github-actions-dashboard --tail 50
+            echo -e "\n=== Container logs ==="
+            docker logs github-actions-dashboard --tail 100
             
-            echo "Health check:"
-            curl -v http://localhost:8000/health
+            # Verify health check endpoint
+            echo -e "\n=== Health check ==="
+            if ! curl -f -s -o /dev/null -w "%{http_code}" http://localhost:8000/health | grep -q "200"; then
+              echo "Health check failed!"
+              docker logs github-actions-dashboard --tail 100
+              exit 1
+            fi
             
-            echo "Deployment completed successfully!"
+            echo -e "\n=== Deployment completed successfully! ==="
