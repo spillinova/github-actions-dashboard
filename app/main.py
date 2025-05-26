@@ -383,12 +383,11 @@ async def health_check():
     Returns 200 if the application is running and can respond to requests.
     """
     try:
-        # Basic response with minimal processing
+        # Basic response with minimal processing - no datetime dependency
         response = {
             "status": "healthy",
             "app": "github-actions-dashboard",
             "version": "1.0.0",
-            "timestamp": datetime.utcnow().isoformat(),
             "system": {
                 "python_version": ".".join(map(str, sys.version_info[:3])),
                 "platform": sys.platform
