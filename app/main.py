@@ -45,22 +45,26 @@ class RepoConfig(BaseModel):
 # In-memory storage for selected repositories
 selected_repos: List[Dict[str, str]] = []
 
-@app.get("/api/search/repos")
-async def search_repos(q: str):
+@app.get("/api/my-repos")
+async def list_my_repos(q: str = None):
     """
-    Search for repositories on GitHub
+    List the authenticated user's repositories, optionally filtered by search term
     """
     try:
         github = get_github_client()
         if not github:
             raise HTTPException(status_code=500, detail="GitHub client not available")
-            
-        # Search for repositories
-        result = github.search_repositories(q, sort="stars", order="desc")
         
-        # Convert to a list of dicts with the fields we need
+        # Get the authenticated user
+        user = github.get_user()
+        
+        # Get all repositories for the authenticated user
         repos = []
-        for repo in result[:10]:  # Limit to top 10 results
+        for repo in user.get_repos(sort="updated", direction="desc"):
+            # If search term is provided, filter by it
+            if q and q.lower() not in repo.name.lower() and (repo.description and q.lower() not in repo.description.lower()):
+                continue
+                
             repos.append({
                 "id": repo.id,
                 "name": repo.name,
@@ -75,9 +79,14 @@ async def search_repos(q: str):
                 "stargazers_count": repo.stargazers_count,
                 "forks_count": repo.forks_count,
                 "language": repo.language,
-                "updated_at": repo.updated_at.isoformat()
+                "updated_at": repo.updated_at.isoformat(),
+                "private": repo.private
             })
             
+            # Limit to 30 most recently updated repos for performance
+            if len(repos) >= 30:
+                break
+                
         return {"items": repos}
         
     except Exception as e:

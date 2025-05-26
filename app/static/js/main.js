@@ -13,6 +13,120 @@ function debounce(func, wait) {
     };
 }
 
+// Function to load the user's repositories
+async function loadMyRepos() {
+    const resultsContainer = document.getElementById('searchResults');
+    if (!resultsContainer) return;
+    
+    // Show loading state
+    resultsContainer.innerHTML = `
+        <div class="text-center p-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 mb-0">Loading your repositories...</p>
+        </div>`;
+    
+    try {
+        // Get the user's repositories
+        const response = await fetch('/api/my-repos');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        const repos = data.items || [];
+        
+        if (repos.length === 0) {
+            resultsContainer.innerHTML = `
+                <div class="text-center p-4 text-muted">
+                    <i class="bi bi-inbox" style="font-size: 2rem; opacity: 0.5;"></i>
+                    <p class="mt-2 mb-0">No repositories found in your account</p>
+                </div>`;
+            return;
+        }
+        
+        // Display repositories
+        renderRepositories(repos, 'Your repositories');
+        
+    } catch (error) {
+        console.error('Error loading repositories:', error);
+        resultsContainer.innerHTML = `
+            <div class="alert alert-danger" role="alert">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                Failed to load your repositories. Please try again later.
+            </div>`;
+    }
+}
+
+// Function to render repositories in the results container
+function renderRepositories(repos, title) {
+    const resultsContainer = document.getElementById('searchResults');
+    if (!resultsContainer) return;
+    
+    const savedRepos = getSavedRepos();
+    
+    let html = `
+        <div class="sticky-top bg-white py-2 border-bottom">
+            <div class="d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">${title}</h6>
+                <small class="text-muted">${repos.length} repositories</small>
+            </div>
+        </div>`;
+    
+    if (repos.length === 0) {
+        html += `
+            <div class="text-center p-4 text-muted">
+                <i class="bi bi-inbox" style="font-size: 2rem; opacity: 0.5;"></i>
+                <p class="mt-2 mb-0">No repositories found</p>
+            </div>`;
+    } else {
+        repos.forEach(repo => {
+            const isAdded = savedRepos.some(r => 
+                r.owner === repo.owner.login && r.name === repo.name
+            );
+            
+            html += `
+                <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                    <div class="flex-grow-1 me-3">
+                        <div class="d-flex align-items-center">
+                            <h6 class="mb-0">
+                                ${repo.private ? '<i class="bi bi-lock-fill text-warning me-1"></i>' : ''}
+                                ${repo.name}
+                            </h6>
+                        </div>
+                        ${repo.description ? `<p class="mb-1 small text-muted text-truncate">${repo.description}</p>` : ''}
+                        <div class="d-flex gap-2 mt-1">
+                            ${repo.language ? `<span class="badge bg-light text-dark">${repo.language}</span>` : ''}
+                            <span class="badge bg-light text-dark">
+                                <i class="bi bi-star-fill text-warning"></i> ${repo.stargazers_count?.toLocaleString() || 0}
+                            </span>
+                            <span class="badge bg-light text-dark">
+                                <i class="bi bi-git"></i> ${repo.forks_count?.toLocaleString() || 0}
+                            </span>
+                            <span class="text-muted small ms-auto">
+                                Updated ${new Date(repo.updated_at).toLocaleDateString()}
+                            </span>
+                        </div>
+                    </div>
+                    <button class="btn btn-sm ${isAdded ? 'btn-outline-secondary' : 'btn-primary'} add-repo" 
+                            data-owner="${repo.owner.login}" 
+                            data-repo="${repo.name}"
+                            ${isAdded ? 'disabled' : ''}>
+                        ${isAdded ? 'Added' : 'Add'}
+                    </button>
+                </div>`;
+        });
+    }
+    
+    resultsContainer.innerHTML = html;
+    
+    // Add event listeners to the Add buttons
+    document.querySelectorAll('.add-repo').forEach(button => {
+        button.addEventListener('click', handleAddRepo);
+    });
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize the dashboard
     initializeDashboard();
@@ -21,6 +135,18 @@ document.addEventListener('DOMContentLoaded', function() {
     const repoSearch = document.getElementById('repoSearch');
     if (repoSearch) {
         repoSearch.addEventListener('input', debounce(handleRepoSearch, 500));
+    }
+    
+    // Load repositories when modal is shown
+    const addRepoModal = document.getElementById('addRepoModal');
+    if (addRepoModal) {
+        addRepoModal.addEventListener('shown.bs.modal', () => {
+            loadMyRepos();
+            const searchInput = addRepoModal.querySelector('input[type="text"]');
+            if (searchInput) {
+                searchInput.focus();
+            }
+        });
     }
 });
 
@@ -374,12 +500,9 @@ async function handleRepoSearch(event) {
     const searchTerm = event.target.value.trim();
     const resultsContainer = document.getElementById('searchResults');
     
+    // Show initial state if search is empty
     if (!searchTerm) {
-        resultsContainer.innerHTML = `
-            <div class="text-center p-4 text-muted">
-                <i class="bi bi-github" style="font-size: 2rem; opacity: 0.5;"></i>
-                <p class="mt-2 mb-0">Search for repositories to add them to your dashboard</p>
-            </div>`;
+        loadMyRepos();
         return;
     }
     
@@ -389,12 +512,12 @@ async function handleRepoSearch(event) {
             <div class="spinner-border text-primary" role="status">
                 <span class="visually-hidden">Loading...</span>
             </div>
-            <p class="mt-2 mb-0">Searching repositories...</p>
+            <p class="mt-2 mb-0">Searching your repositories...</p>
         </div>`;
     
     try {
-        // Search for repositories using the GitHub API
-        const response = await fetch(`/api/search/repos?q=${encodeURIComponent(searchTerm)}`);
+        // Search through the user's repositories
+        const response = await fetch(`/api/my-repos?q=${encodeURIComponent(searchTerm)}`);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
