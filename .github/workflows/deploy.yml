@@ -89,12 +89,11 @@ jobs:
                   - PORT=8000
                   - PYTHONUNBUFFERED=1
                 healthcheck:
-                  test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://0.0.0.0:8000/health || exit 1"]
+                  test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://0.0.0.0:8000/health", "--method=GET", "--header=Accept: application/json", "--no-check-certificate"]
                   interval: 30s
                   timeout: 10s
                   retries: 3
-                  start_period: 60s
-                  disable: false
+                  start_period: 30s
                 logging:
                   driver: json-file
                   options:
