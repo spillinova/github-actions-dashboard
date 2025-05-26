@@ -17,7 +17,7 @@ FROM python:3.11-alpine
 WORKDIR /app
 
 # Install runtime dependencies
-RUN apk add --no-cache libstdc++
+RUN apk add --no-cache libstdc++ wget
 
 # Copy Python dependencies from builder
 COPY --from=builder /root/.local /root/.local

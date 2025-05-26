@@ -89,7 +89,7 @@ jobs:
                   - PORT=8000
                   - PYTHONUNBUFFERED=1
                 healthcheck:
-                  test: ["CMD-SHELL", "curl -f http://0.0.0.0:8000/health || exit 1"]
+                  test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://0.0.0.0:8000/health || exit 1"]
                   interval: 30s
                   timeout: 10s
                   retries: 3

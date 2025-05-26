@@ -378,7 +378,10 @@ async def get_workflow_runs(owner: str, repo: str, workflow_id: str, per_page: i
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """
+    Lightweight health check endpoint.
+    Returns 200 if the application is running and can respond to requests.
+    """
     try:
         # Basic response with minimal processing
         response = {
@@ -389,31 +392,33 @@ async def health_check():
             "system": {
                 "python_version": ".".join(map(str, sys.version_info[:3])),
                 "platform": sys.platform
-            },
-            "endpoints": {
-                "api": "/api",
-                "docs": "/docs",
-                "dashboard": "/"
             }
         }
         
-        # Try to get GitHub status if possible (but don't fail if it doesn't work)
-        try:
-            github = get_github_client()
-            if github:
-                user = github.get_user()
+        # Only check GitHub connection on the first health check or periodically
+        # to reduce API calls
+        current_time = datetime.utcnow()
+        last_github_check = getattr(health_check, '_last_github_check', None)
+        
+        if not last_github_check or (current_time - last_github_check).total_seconds() > 300:  # 5 minutes
+            try:
+                github = get_github_client()
+                if github:
+                    # Just check rate limit as it's lightweight
+                    rate_limit = github.get_rate_limit()
+                    response["github"] = {
+                        "authenticated": True,
+                        "rate_limit": rate_limit.core.remaining,
+                        "rate_limit_reset": rate_limit.core.reset.isoformat()
+                    }
+                    health_check._last_github_check = current_time
+            except Exception as e:
+                logger.debug(f"GitHub status check skipped: {str(e)}")
                 response["github"] = {
-                    "authenticated": True,
-                    "username": user.login,
-                    "rate_limit": github.get_rate_limit().core.remaining
+                    "authenticated": False,
+                    "error": str(e)[:100]  # Truncate long error messages
                 }
-        except Exception as e:
-            logger.debug(f"GitHub status check skipped: {str(e)}")
-            response["github"] = {
-                "authenticated": False,
-                "error": str(e)
-            }
-            
+        
         return JSONResponse(status_code=200, content=response)
         
     except Exception as e:
@@ -423,7 +428,7 @@ async def health_check():
             content={
                 "status": "error",
                 "message": "Application error",
-                "error": str(e)
+                "error": str(e)[:200]  # Truncate long error messages
             }
         )
 
