@@ -180,13 +180,13 @@ async def list_my_repos(q: str = None):
                 repo_full_name = f"{getattr(repo, 'owner', '')}/{getattr(repo, 'name', 'unknown')}"
                 logger.warning(f"Error processing repository {repo_full_name}: {str(e)}")
                 continue
+        
+        logger.info(f"Returning {len(processed_repos)} repositories (filtered by search: {'yes' if q else 'no'})")
+        return {"items": processed_repos}
                 
-                logger.info(f"Returning {len(processed_repos)} repositories (filtered by search: {'yes' if q else 'no'})")
-                return {"items": processed_repos}
-                
-            except Exception as e:
-                logger.error(f"Error fetching repositories: {str(e)}")
-                raise HTTPException(status_code=500, detail=f"Error fetching repositories: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error fetching repositories: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching repositories: {str(e)}")
         
     except Exception as e:
         logger.error(f"Error searching repositories: {str(e)}")
