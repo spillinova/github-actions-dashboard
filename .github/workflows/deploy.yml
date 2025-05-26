@@ -73,6 +73,7 @@ jobs:
             cat > docker-compose.yml << 'EOF'
             version: '3.8'
 
+
             services:
               app:
                 image: ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
@@ -89,11 +90,11 @@ jobs:
                   - PORT=8000
                   - PYTHONUNBUFFERED=1
                 healthcheck:
-                  test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-                  interval: 30s
-                  timeout: 10s
-                  retries: 3
-                  start_period: 30s
+                  test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/health"]
+                  interval: 10s
+                  timeout: 5s
+                  retries: 6
+                  start_period: 10s
                 logging:
                   driver: json-file
                   options:
@@ -113,43 +114,70 @@ jobs:
             mkdir -p data
 
             # Clean up and restart
+            echo "Stopping and removing existing containers..."
             docker-compose down -v --remove-orphans || true
+            
+            # Clean up unused resources
+            echo "Cleaning up unused resources..."
             docker system prune -f
-            
-            # Pull and start the service
-            echo ${{ secrets.GH_PAT }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Pull the latest image
+            echo "Pulling the latest image..."
+            echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             docker-compose pull
+
+            # Start the services
+            echo "Starting services..."
             docker-compose up -d
-            
+
             # Wait for container to be healthy
             echo "Waiting for container to be healthy..."
-            for i in {1..10}; do
-              if docker ps | grep -q "github-actions-dashboard.*healthy"; then
-                echo "Container is healthy!"
-                break
-              elif [ $i -eq 10 ]; then
-                echo "Container failed to become healthy after 30 seconds"
-                docker logs github-actions-dashboard --tail 50
-                exit 1
-              else
-                echo "Waiting for container to be healthy (attempt $i/10)..."
-                sleep 3
-              fi
+            MAX_RETRIES=12
+            RETRY_DELAY=5
+            i=1
+            
+            while [ $i -le $MAX_RETRIES ]; do
+                CONTAINER_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' github-actions-dashboard 2>/dev/null || echo "starting")
+                
+                if [ "$CONTAINER_HEALTH" = "healthy" ]; then
+                    echo "Container is healthy!"
+                    break
+                fi
+                
+                if [ $i -eq $MAX_RETRIES ]; then
+                    echo "Container failed to become healthy after $((MAX_RETRIES * RETRY_DELAY)) seconds"
+                    echo "Container status: $CONTAINER_HEALTH"
+                    docker logs github-actions-dashboard --tail 50
+                    exit 1
+                fi
+                
+                echo "Container status: $CONTAINER_HEALTH (attempt $i/$MAX_RETRIES)"
+                sleep $RETRY_DELAY
+                i=$((i + 1))
             done
 
             # Show container status and logs
             echo -e "\n=== Container status ==="
             docker ps -a
-            
+
             echo -e "\n=== Container logs ==="
             docker logs github-actions-dashboard --tail 100
-            
+
             # Verify health check endpoint
-            echo -e "\n=== Health check ==="
-            if ! curl -f -s -o /dev/null -w "%{http_code}" http://localhost:8000/health | grep -q "200"; then
-              echo "Health check failed!"
-              docker logs github-actions-dashboard --tail 100
-              exit 1
-            fi
+            echo -e "\n=== Verifying health check endpoint ==="
+            HEALTH_CHECK_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || echo "curl_error")
             
+            if [ "$HEALTH_CHECK_RESPONSE" != "200" ]; then
+                echo "Health check failed with status code: $HEALTH_CHECK_RESPONSE"
+                echo -e "\n=== Debug Info ==="
+                echo "Container logs:"
+                docker logs github-actions-dashboard --tail 50
+                echo -e "\nContainer processes:"
+                docker top github-actions-dashboard
+                echo -e "\nContainer environment:"
+                docker exec github-actions-dashboard env
+                exit 1
+            fi
+
             echo -e "\n=== Deployment completed successfully! ==="
+            echo "Service is now available at http://$(hostname -I | awk '{print $1}'):8000"

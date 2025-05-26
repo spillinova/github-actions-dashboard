@@ -379,12 +379,15 @@ async def health_check():
     """Health check endpoint"""
     # Basic app health check - don't fail just because of GitHub API
     try:
-        # Check if the app is running
-        return {
-            "status": "healthy",
-            "app": "running",
-            "timestamp": datetime.utcnow().isoformat()
-        }
+        # Simple response with minimal processing
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "healthy",
+                "app": "running",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
         return JSONResponse(
