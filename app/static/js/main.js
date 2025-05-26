@@ -15,8 +15,33 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 async function initializeDashboard() {
-    // Load repositories when the page loads
-    await loadRepositories();
+    // Load any previously added repositories from localStorage
+    const savedRepos = getSavedRepos();
+    updateReposList(savedRepos);
+    
+    // Set up refresh button
+    const refreshBtn = document.getElementById('refreshRepos');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', async () => {
+            const savedRepos = getSavedRepos();
+            const container = document.getElementById('repo-container');
+            if (container) {
+                container.innerHTML = '';
+                for (const repo of savedRepos) {
+                    await loadWorkflows(repo.owner, repo.name, container);
+                }
+            }
+        });
+    }
+    
+    // Load the first repository if available
+    if (savedRepos.length > 0) {
+        const container = document.getElementById('repo-container');
+        if (container) {
+            container.innerHTML = '';
+            await loadWorkflows(savedRepos[0].owner, savedRepos[0].name, container);
+        }
+    }
 }
 
 async function loadRepositories() {
@@ -54,6 +79,78 @@ async function loadRepositories() {
     }
 }
 
+function getSavedRepos() {
+    return JSON.parse(localStorage.getItem('addedRepos') || '[]');
+}
+
+function updateReposList(repos) {
+    const repoList = document.getElementById('repoList');
+    const noReposMessage = document.getElementById('noReposMessage');
+    
+    if (!repoList) return;
+    
+    // Clear the current list
+    repoList.innerHTML = '';
+    
+    if (repos.length === 0) {
+        noReposMessage.style.display = 'block';
+        return;
+    }
+    
+    noReposMessage.style.display = 'none';
+    
+    // Add each repository to the list
+    repos.forEach(repo => {
+        const repoItem = document.createElement('button');
+        repoItem.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+        repoItem.innerHTML = `
+            <span>${repo.full_name}</span>
+            <button class="btn btn-sm btn-outline-danger remove-repo" data-owner="${repo.owner}" data-repo="${repo.name}">
+                <i class="bi bi-trash"></i>
+            </button>
+        `;
+        
+        // Add click handler to load workflows
+        repoItem.addEventListener('click', async (e) => {
+            // Don't navigate if the remove button was clicked
+            if (e.target.closest('.remove-repo')) return;
+            
+            const container = document.getElementById('repo-container');
+            if (container) {
+                container.innerHTML = '';
+                await loadWorkflows(repo.owner, repo.name, container);
+            }
+        });
+        
+        // Add remove button handler
+        const removeBtn = repoItem.querySelector('.remove-repo');
+        if (removeBtn) {
+            removeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                removeRepository(repo.owner, repo.name);
+            });
+        }
+        
+        repoList.appendChild(repoItem);
+    });
+}
+
+function removeRepository(owner, repoName) {
+    const savedRepos = getSavedRepos();
+    const updatedRepos = savedRepos.filter(r => !(r.owner === owner && r.name === repoName));
+    
+    if (updatedRepos.length !== savedRepos.length) {
+        localStorage.setItem('addedRepos', JSON.stringify(updatedRepos));
+        updateReposList(updatedRepos);
+        
+        // If we're currently viewing this repo, clear the container
+        const container = document.getElementById('repo-container');
+        if (container) {
+            container.innerHTML = '';
+        }
+    }
+}
+
 async function loadWorkflows(owner, repo, container) {
     try {
         const repoElement = document.createElement('div');
@@ -72,10 +169,17 @@ async function loadWorkflows(owner, repo, container) {
         
         // Fetch workflows for this repository
         const response = await fetch(`/api/workflows/${owner}/${repo}`);
-        const workflows = await response.json();
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        const workflows = data.workflows || [];
         
         const workflowList = document.getElementById(`workflows-${owner}-${repo}`);
-        if (!workflowList) return;
+        if (!workflowList) {
+            console.error(`Workflow list container not found for ${owner}/${repo}`);
+            return;
+        }
         
         if (workflows.length === 0) {
             workflowList.innerHTML = '<p>No workflows found for this repository.</p>';
@@ -105,8 +209,12 @@ async function loadWorkflows(owner, repo, container) {
 
 async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container) {
     try {
-        const response = await fetch(`/api/workflow-runs/${owner}/${repo}/${workflowId}?per_page=3`);
-        const runs = await response.json();
+        const response = await fetch(`/api/runs/${owner}/${repo}/${workflowId}?per_page=3`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        const runs = data.runs || [];
         
         if (!runs || runs.length === 0) {
             const workflowElement = document.createElement('div');
@@ -149,8 +257,9 @@ async function handleAddRepo(event) {
     
     const form = event.target;
     const formData = new FormData(form);
-    const owner = formData.get('owner');
-    const repo = formData.get('repo');
+    const owner = formData.get('owner').trim();
+    const repo = formData.get('repo').trim();
+    const repoFullName = `${owner}/${repo}`;
     
     if (!owner || !repo) {
         showError('Please provide both owner and repository name');
@@ -158,27 +267,47 @@ async function handleAddRepo(event) {
     }
     
     try {
-        const response = await fetch('/api/repos/add', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ owner, name: repo })
-        });
-        
+        // Verify the repository exists and we have access to it
+        const response = await fetch(`/api/workflows/${owner}/${repo}`);
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.detail || 'Failed to add repository');
+            throw new Error(error.detail || 'Repository not found or access denied');
         }
         
-        // Reload the repositories
-        await loadRepositories();
+        // Get or initialize the list of added repositories
+        const savedRepos = JSON.parse(localStorage.getItem('addedRepos') || '[]');
         
-        // Reset the form
+        // Check if repository is already added
+        if (savedRepos.some(r => r.full_name === repoFullName)) {
+            showError('This repository has already been added');
+            return;
+        }
+        
+        // Add the new repository
+        const newRepo = { owner, name: repo, full_name: repoFullName };
+        savedRepos.push(newRepo);
+        localStorage.setItem('addedRepos', JSON.stringify(savedRepos));
+        
+        // Update the repositories list
+        updateReposList(savedRepos);
+        
+        // Close the modal and clear the form
+        const modal = bootstrap.Modal.getInstance(document.getElementById('addRepoModal'));
+        if (modal) {
+            modal.hide();
+        }
         form.reset();
+        
+        // Clear and update the display
+        const container = document.getElementById('repo-container');
+        if (container) {
+            container.innerHTML = '';
+            await loadWorkflows(owner, repo, container);
+        }
+        
     } catch (error) {
         console.error('Error adding repository:', error);
-        showError(error.message);
+        showError(error.message || 'Failed to add repository. Please verify the repository exists and you have access to it.');
     }
 }
 
