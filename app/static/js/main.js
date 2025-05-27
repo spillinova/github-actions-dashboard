@@ -180,10 +180,17 @@ async function initializeDashboard() {
     // Load any previously added repositories from localStorage
     const savedRepos = getSavedRepos();
     
+    // Only proceed if we have a valid repository list container
+    const repoList = document.getElementById('repoList');
+    if (!repoList) {
+        console.warn('Repository list container not found');
+        return;
+    }
+    
     // Update the repositories list in the sidebar
     updateReposList(savedRepos);
     
-    // Set up refresh button
+    // Set up refresh button if it exists
     const refreshBtn = document.getElementById('refreshRepos');
     if (refreshBtn) {
         refreshBtn.addEventListener('click', async () => {
@@ -280,18 +287,22 @@ function updateReposList(repos) {
             }
         };
         
-        // Remove any existing event listeners to prevent duplicates
-        repoItem.replaceWith(repoItem.cloneNode(true));
-        const newRepoItem = repoList.lastElementChild;
-        newRepoItem.addEventListener('click', clickHandler);
+        // Add the item to the list
+        repoList.appendChild(repoItem);
         
-        // Add remove button handler
-        const removeBtn = newRepoItem.querySelector('.remove-repo');
-        if (removeBtn) {
-            removeBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                removeRepository(repo.owner, repo.name);
-            });
+        // Add click handler to the new item
+        const addedItem = repoList.lastElementChild;
+        if (addedItem) {
+            addedItem.addEventListener('click', clickHandler);
+            
+            // Add remove button handler if it exists
+            const removeBtn = addedItem.querySelector('.remove-repo');
+            if (removeBtn) {
+                removeBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    removeRepository(repo.owner, repo.name);
+                });
+            }
         }
         
         // If this is the active repo, load its workflows
