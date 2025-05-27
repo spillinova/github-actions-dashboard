@@ -359,42 +359,67 @@ async def get_workflow_runs(owner: str, repo: str, workflow_id: str, per_page: i
         if not workflow:
             raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found in {owner}/{repo}")
         
-        runs = workflow.get_runs()[:per_page]
+        logger.info(f"Fetching runs for workflow {workflow_id} in {owner}/{repo}")
+        
+        # Get the workflow runs
+        runs = workflow.get_runs()
+        logger.info(f"Total runs found: {runs.totalCount}")
+        
+        # Get the most recent runs
+        recent_runs = list(runs[:per_page])
+        logger.info(f"Retrieved {len(recent_runs)} most recent runs")
         
         runs_data = []
-        for run in runs:
+        for run in recent_runs:
             try:
-                # Get the run details
+                # Safely get run attributes with error handling
                 run_data = {
-                    "id": run.id,
-                    "run_number": run.run_number,
-                    "event": run.event,
-                    "status": run.status,
-                    "conclusion": run.conclusion if hasattr(run, 'conclusion') else None,
-                    "created_at": run.created_at.isoformat() if hasattr(run, 'created_at') else None,
-                    "updated_at": run.updated_at.isoformat() if hasattr(run, 'updated_at') else None,
-                    "html_url": run.html_url if hasattr(run, 'html_url') else None,
-                    "head_branch": run.head_branch if hasattr(run, 'head_branch') else None,
-                    "head_repository": {
-                        "full_name": run.head_repository.full_name if hasattr(run, 'head_repository') and run.head_repository else None,
-                    } if hasattr(run, 'head_repository') and run.head_repository else None,
-                    "head_commit": {
-                        "id": run.head_commit.sha if (hasattr(run, 'head_commit') and run.head_commit and hasattr(run.head_commit, 'sha')) else None,
-                        "message": run.head_commit.message if (hasattr(run, 'head_commit') and run.head_commit) else None,
-                        "author": {
-                            "name": run.head_commit.author.name if (hasattr(run, 'head_commit') and run.head_commit and hasattr(run.head_commit, 'author') and run.head_commit.author) else None,
-                            "email": run.head_commit.author.email if (hasattr(run, 'head_commit') and run.head_commit and hasattr(run.head_commit, 'author') and run.head_commit.author) else None,
-                        } if hasattr(run, 'head_commit') and run.head_commit and hasattr(run.head_commit, 'author') and run.head_commit.author else None,
-                    } if hasattr(run, 'head_commit') and run.head_commit else None,
-                    "actor": {
-                        "login": run.actor.login if hasattr(run, 'actor') and run.actor else None,
-                        "avatar_url": run.actor.avatar_url if hasattr(run, 'actor') and run.actor else None,
-                        "html_url": f"https://github.com/{run.actor.login}" if hasattr(run, 'actor') and run.actor and hasattr(run.actor, 'login') else None,
-                    } if hasattr(run, 'actor') and run.actor else None
+                    "id": getattr(run, 'id', None),
+                    "run_number": getattr(run, 'run_number', None),
+                    "event": getattr(run, 'event', None),
+                    "status": getattr(run, 'status', None),
+                    "conclusion": getattr(run, 'conclusion', None),
+                    "created_at": run.created_at.isoformat() if hasattr(run, 'created_at') and run.created_at else None,
+                    "updated_at": run.updated_at.isoformat() if hasattr(run, 'updated_at') and run.updated_at else None,
+                    "html_url": getattr(run, 'html_url', None),
+                    "head_branch": getattr(run, 'head_branch', None),
                 }
+
+                # Safely get head_repository if available
+                if hasattr(run, 'head_repository') and run.head_repository:
+                    run_data["head_repository"] = {
+                        "full_name": getattr(run.head_repository, 'full_name', None)
+                    }
+
+                # Safely get head_commit if available
+                if hasattr(run, 'head_commit') and run.head_commit:
+                    head_commit_data = {
+                        "id": getattr(run.head_commit, 'sha', None),
+                        "message": getattr(run.head_commit, 'message', None)
+                    }
+                    
+                    # Safely get author if available
+                    if hasattr(run.head_commit, 'author') and run.head_commit.author:
+                        head_commit_data["author"] = {
+                            "name": getattr(run.head_commit.author, 'name', None),
+                            "email": getattr(run.head_commit.author, 'email', None)
+                        }
+                    
+                    run_data["head_commit"] = head_commit_data
+
+                # Safely get actor if available
+                if hasattr(run, 'actor') and run.actor:
+                    actor_login = getattr(run.actor, 'login', None)
+                    run_data["actor"] = {
+                        "login": actor_login,
+                        "avatar_url": getattr(run.actor, 'avatar_url', None),
+                        "html_url": f"https://github.com/{actor_login}" if actor_login else None
+                    }
+
                 runs_data.append(run_data)
+                
             except Exception as e:
-                logger.warning(f"Error processing workflow run {run.id}: {str(e)}")
+                logger.warning(f"Error processing workflow run {getattr(run, 'id', 'unknown')}: {str(e)}")
                 continue
                 
         return {

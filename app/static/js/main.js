@@ -226,6 +226,7 @@ async function refreshAllWorkflows(silent = false) {
     
     // Don't refresh if already refreshing
     if (refreshBtn.classList.contains('refreshing')) {
+        console.log('Refresh already in progress, skipping...');
         return;
     }
     
@@ -239,18 +240,26 @@ async function refreshAllWorkflows(silent = false) {
         const container = document.getElementById('repo-container');
         
         if (container && savedRepos.length > 0) {
-            // Only clear if not silent (initial load)
+            // Only clear if this is not a silent refresh (initial load or manual refresh)
             if (!silent) {
                 container.innerHTML = '';
             }
             
             // Refresh each repository
             for (const repo of savedRepos) {
-                await loadWorkflows(repo.owner, repo.name, container);
+                try {
+                    await loadWorkflows(repo.owner, repo.name, container);
+                } catch (error) {
+                    console.error(`Error loading workflows for ${repo.owner}/${repo.name}:`, error);
+                    // Continue with next repo even if one fails
+                    continue;
+                }
             }
             
             if (!silent) {
                 console.log('Workflows refreshed successfully');
+            } else {
+                console.log('Workflows updated via auto-refresh');
             }
         }
     } catch (error) {
@@ -552,98 +561,176 @@ async function loadWorkflows(owner, repo, container) {
 
 async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container) {
     try {
+        console.log(`Loading runs for workflow: ${workflowName} (${workflowId})`);
         const response = await fetch(`/api/runs/${owner}/${repo}/${workflowId}?per_page=3`);
+        
         if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`HTTP error! status: ${response.status}, response:`, errorText);
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        const data = await response.json();
-        console.log(`Workflow runs for ${owner}/${repo}/${workflowId}:`, data); // Debug log
-        const runs = data.runs || [];
         
-        if (!runs || runs.length === 0) {
-            const workflowElement = document.createElement('div');
-            workflowElement.className = 'workflow-item';
+        const data = await response.json();
+        console.log(`Received data for ${workflowName}:`, data);
+        
+        const runs = data.runs || [];
+        console.log(`Found ${runs.length} runs for ${workflowName}`);
+        
+        // Try to find existing workflow element to update it instead of recreating
+        let workflowElement = document.getElementById(`workflow-${workflowId}`);
+        
+        if (!workflowElement) {
+            workflowElement = document.createElement('div');
+            workflowElement.className = 'workflow mb-3';
+            workflowElement.id = `workflow-${workflowId}`;
+        }
+        
+        if (runs.length === 0) {
+            console.log(`No runs found for workflow: ${workflowName}`);
             workflowElement.innerHTML = `
                 <div class="workflow-header">
                     <span class="workflow-name">${workflowName}</span>
                     <span class="workflow-status">No runs</span>
                 </div>`;
-            container.appendChild(workflowElement);
+                
+            // Only append if not already in the container
+            if (!container.contains(workflowElement)) {
+                container.appendChild(workflowElement);
+            }
             return;
         }
         
-        // Get the most recent run
+        // Sort runs by creation date (newest first)
+        runs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        
+        // Create workflow header with latest run status
         const latestRun = runs[0];
         const status = latestRun.conclusion || latestRun.status || 'unknown';
-        const statusText = status === 'completed' ? 'success' : status === 'in_progress' ? 'in progress' : status;
         
-        // Get branch information - try different possible locations
-        let branchName = 'Not specified';
-        if (latestRun.head_branch) {
-            branchName = latestRun.head_branch;
-        } else if (latestRun.head_repository?.full_name) {
-            // Try to extract branch from head repository name if available
-            const match = latestRun.head_repository.full_name.match(/[^/]+$/);
-            if (match) branchName = match[0];
+        // Only update the content if it's different to avoid flickering
+        const newContent = `
+            <div class="workflow-header" data-bs-toggle="collapse" data-bs-target="#runs-${workflowId}" aria-expanded="false" aria-controls="runs-${workflowId}">
+                <span class="workflow-name">${workflowName}</span>
+                <span class="badge bg-${getStatusBadgeClass(status)}">${status}</span>
+            </div>
+            <div class="collapse show" id="runs-${workflowId}">
+                <div class="runs-list">
+                    <div class="run-item">
+                        <div class="run-header">
+                            <span class="run-status ${status}"></span>
+                            <span class="run-number">#${latestRun.run_number || '?'}</span>
+                            <span class="run-branch">${latestRun.head_branch || 'unknown'}</span>
+                            ${latestRun.html_url ? `
+                                <a href="${latestRun.html_url}" target="_blank" class="run-link">
+                                    <i class="bi-box-arrow-up-right"></i>
+                                </a>
+                            ` : ''}
+                        </div>
+                        <div class="run-details">
+                            <div class="commit-message" title="${(latestRun.head_commit?.message || 'No commit message').split('\n')[0]}">
+                                ${(latestRun.head_commit?.message || 'No commit message').split('\n')[0]}
+                            </div>
+                            <div class="commit-meta">
+                                <span class="commit-author">${latestRun.head_commit?.author?.name || 'Unknown'}</span>
+                                <span class="commit-date">${latestRun.created_at ? formatDate(latestRun.created_at) : 'N/A'}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+            
+        // Only update if content has changed
+        if (workflowElement.innerHTML.trim() !== newContent.trim()) {
+            workflowElement.innerHTML = newContent;
         }
         
-        const workflowElement = document.createElement('div');
-        workflowElement.className = `workflow-item ${status}`;
-        workflowElement.innerHTML = `
-            <div class="workflow-header">
-                <a href="${data.workflow?.html_url || '#'}" target="_blank" class="workflow-name">
-                    ${workflowName}
-                </a>
-                <span class="workflow-status ${status}">${statusText}</span>
-            </div>
-            <div class="workflow-details">
-                <div class="workflow-detail-row">
-                    <span class="detail-label">Branch:</span>
-                    <span class="detail-value">${branchName}</span>
-                </div>
-                ${latestRun.head_commit?.message ? `
-                    <div class="workflow-detail-row">
-                        <span class="detail-label">Commit:</span>
-                        <span class="detail-value" title="${latestRun.head_commit.message.replace(/"/g, '&quot;')}">
-                            ${latestRun.head_commit.message.split('\n')[0].substring(0, 50)}${latestRun.head_commit.message.length > 50 ? '...' : ''}
-                        </span>
-                    </div>` : ''
-                }
-                ${latestRun.actor?.login ? `
-                    <div class="workflow-detail-row">
-                        <span class="detail-label">Run by:</span>
-                        <span class="detail-value">
-                            ${latestRun.actor.avatar_url ? 
-                                `<img src="${latestRun.actor.avatar_url}" alt="${latestRun.actor.login}" class="avatar-icon" />` : ''
-                            }
-                            <a href="https://github.com/${latestRun.actor.login}" target="_blank">
-                                ${latestRun.actor.login}
-                            </a>
-                        </span>
-                    </div>` : ''
-                }
-                ${latestRun.created_at ? `
-                    <div class="workflow-detail-row">
-                        <span class="detail-label">Last run:</span>
-                        <span class="detail-value" title="${new Date(latestRun.created_at).toLocaleString()}">
-                            ${formatDate(latestRun.created_at)}
-                        </span>
-                    </div>` : ''
-                }
-                ${latestRun.html_url ? `
-                    <div class="workflow-detail-row">
-                        <a href="${latestRun.html_url}" target="_blank" class="btn btn-sm btn-outline-secondary mt-2">
-                            <i class="bi bi-box-arrow-up-right"></i> View in GitHub
-                        </a>
-                    </div>` : ''
-                }
-            </div>`;
-        
-        container.appendChild(workflowElement);
+        // Only append if not already in the container
+        if (!container.contains(workflowElement)) {
+            container.appendChild(workflowElement);
+        }
     } catch (error) {
-        console.error(`Error loading workflow runs for ${owner}/${repo}/${workflowId}:`, error);
+        console.error(`Error loading runs for workflow ${workflowName}:`, error);
+        
+        // Create or update error element
+        const errorId = `error-${workflowId}`;
+        let errorElement = document.getElementById(errorId);
+        
+        if (!errorElement) {
+            errorElement = document.createElement('div');
+            errorElement.id = errorId;
+            errorElement.className = 'alert alert-warning';
+            
+            // Append or replace existing content
+            const existingElement = document.getElementById(`workflow-${workflowId}`);
+            if (existingElement) {
+                existingElement.innerHTML = '';
+                existingElement.appendChild(errorElement);
+            } else {
+                container.appendChild(errorElement);
+            }
+        }
+        
+        errorElement.textContent = `Failed to load runs for ${workflowName}. ${error.message || ''}`;
     }
 }
+
+// Helper function to get badge class based on status
+function getStatusBadgeClass(status) {
+    switch (status) {
+        case 'success':
+        case 'completed':
+            return 'success';
+        case 'failure':
+        case 'failed':
+        case 'error':
+            return 'danger';
+        case 'in_progress':
+        case 'pending':
+        case 'queued':
+            return 'warning';
+        case 'cancelled':
+        case 'skipped':
+            return 'secondary';
+        default:
+            return 'info';
+    }
+}
+
+// Format date to a readable format
+function formatDate(dateString) {
+    if (!dateString) return 'N/A';
+    
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Invalid date';
+    
+    // Format as: MMM D, YYYY h:mm A (e.g., May 26, 2025 6:30 PM)
+    return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+    });
+}
+
+// Initialize the dashboard when the DOM is fully loaded
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize the dashboard
+    initializeDashboard();
+    
+    // Set up event listeners
+    const refreshBtn = document.getElementById('refreshRepos');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => refreshAllWorkflows(false));
+    }
+    
+    // Start polling if enabled in settings
+    const savedPolling = localStorage.getItem('autoRefreshEnabled');
+    if (savedPolling === 'true') {
+        startPolling();
+    }
+});
 
 function showErrorInModal(message) {
     const errorElement = document.getElementById('repoError');
