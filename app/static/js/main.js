@@ -129,9 +129,14 @@ function renderRepositories(repos, title) {
                             <span class="text-muted small">
                                 <i class="bi bi-clock-history"></i> Updated ${updatedAt}
                             </span>
-                            <span class="badge bg-light text-dark" title="Default branch">
-                                <i class="bi bi-git-branch"></i> ${repo.default_branch || 'main'}
-                            </span>
+                            ${repo.default_branch ? `
+                                <span class="badge bg-light text-dark" title="Default branch">
+                                    <i class="bi bi-git-branch"></i> ${repo.default_branch}
+                                </span>` : 
+                                `<span class="badge bg-light text-dark" title="Branch information not available">
+                                    <i class="bi bi-git-branch"></i> Branch: N/A
+                                </span>`
+                            }
                         </div>
                     </div>
                     <button class="btn btn-sm ${isAdded ? 'btn-outline-secondary' : 'btn-primary'} add-repo" 

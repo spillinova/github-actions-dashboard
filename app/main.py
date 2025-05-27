@@ -148,28 +148,37 @@ async def list_my_repos(q: str = None):
                 owner_login = getattr(owner, 'login', 'unknown')
                 owner_avatar = getattr(owner, 'avatar_url', '')
                 
-                # Get the default branch safely
-                default_branch = getattr(repo, 'default_branch', 'main')
-                
-                # Add repo to processed repos
-                processed_repos.append({
-                    "id": getattr(repo, 'id', 0),
-                    "name": repo_name,
-                    "full_name": f"{owner_login}/{repo_name}",
-                    "owner": {
-                        "login": owner_login,
-                        "avatar_url": owner_avatar,
-                        "html_url": f"https://github.com/{owner_login}"
-                    },
-                    "html_url": f"https://github.com/{owner_login}/{repo_name}",
-                    "description": repo_description,
-                    "stargazers_count": getattr(repo, 'stargazers_count', 0),
-                    "forks_count": getattr(repo, 'forks_count', 0),
-                    "language": getattr(repo, 'language', None),
-                    "updated_at": getattr(repo, 'updated_at', '').isoformat() if hasattr(repo, 'updated_at') else '',
-                    "private": repo_private,
-                    "default_branch": default_branch
-                })
+                try:
+                    # Try to get the default branch with better error handling
+                    default_branch = None
+                    try:
+                        default_branch = repo.default_branch
+                        logger.info(f"Got default branch for {owner_login}/{repo_name}: {default_branch}")
+                    except Exception as e:
+                        logger.warning(f"Could not get default branch for {owner_login}/{repo_name}: {str(e)}")
+                    
+                    # Add repo to processed repos
+                    processed_repos.append({
+                        "id": getattr(repo, 'id', 0),
+                        "name": repo_name,
+                        "full_name": f"{owner_login}/{repo_name}",
+                        "owner": {
+                            "login": owner_login,
+                            "avatar_url": owner_avatar,
+                            "html_url": f"https://github.com/{owner_login}"
+                        },
+                        "html_url": f"https://github.com/{owner_login}/{repo_name}",
+                        "description": repo_description,
+                        "stargazers_count": getattr(repo, 'stargazers_count', 0),
+                        "forks_count": getattr(repo, 'forks_count', 0),
+                        "language": getattr(repo, 'language', None),
+                        "updated_at": getattr(repo, 'updated_at', '').isoformat() if hasattr(repo, 'updated_at') else '',
+                        "private": repo_private,
+                        "default_branch": default_branch  # Can be None if not available
+                    })
+                except Exception as e:
+                    logger.error(f"Error processing repository {owner_login}/{repo_name}: {str(e)}")
+                    continue
                 
                 logger.info(f"Found repo: {owner_login}/{repo_name} (private: {repo_private})")
                 
