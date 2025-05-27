@@ -379,12 +379,12 @@ async def get_workflow_runs(owner: str, repo: str, workflow_id: str, per_page: i
                         "full_name": run.head_repository.full_name if hasattr(run, 'head_repository') and run.head_repository else None,
                     } if hasattr(run, 'head_repository') and run.head_repository else None,
                     "head_commit": {
-                        "id": run.head_commit.id if (hasattr(run, 'head_commit') and run.head_commit) else None,
+                        "id": run.head_commit.sha if (hasattr(run, 'head_commit') and run.head_commit and hasattr(run.head_commit, 'sha')) else None,
                         "message": run.head_commit.message if (hasattr(run, 'head_commit') and run.head_commit) else None,
                         "author": {
-                            "name": run.head_commit.author.name if (hasattr(run, 'head_commit') and run.head_commit and hasattr(run.head_commit, 'author')) else None,
-                            "email": run.head_commit.author.email if (hasattr(run, 'head_commit') and run.head_commit and hasattr(run.head_commit, 'author')) else None,
-                        } if hasattr(run, 'head_commit') and run.head_commit and hasattr(run.head_commit, 'author') else None,
+                            "name": run.head_commit.author.name if (hasattr(run, 'head_commit') and run.head_commit and hasattr(run.head_commit, 'author') and run.head_commit.author) else None,
+                            "email": run.head_commit.author.email if (hasattr(run, 'head_commit') and run.head_commit and hasattr(run.head_commit, 'author') and run.head_commit.author) else None,
+                        } if hasattr(run, 'head_commit') and run.head_commit and hasattr(run.head_commit, 'author') and run.head_commit.author else None,
                     } if hasattr(run, 'head_commit') and run.head_commit else None,
                     "actor": {
                         "login": run.actor.login if hasattr(run, 'actor') and run.actor else None,
