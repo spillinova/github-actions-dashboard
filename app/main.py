@@ -342,100 +342,156 @@ async def get_workflows(owner: str, repo: str):
         raise
     except Exception as e:
         logger.error(f"Error in get_workflows: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch workflows: {str(e)}")
 
 @app.get("/api/runs/{owner}/{repo}/{workflow_id}")
 async def get_workflow_runs(owner: str, repo: str, workflow_id: str, per_page: int = 5):
     try:
-        github = get_github_client()
-        if not github:
-            raise HTTPException(status_code=500, detail="GitHub authentication not properly configured")
-            
-        repo_obj = github.get_repo(f"{owner}/{repo}")
-        if not repo_obj:
-            raise HTTPException(status_code=404, detail=f"Repository {owner}/{repo} not found")
-            
-        workflow = repo_obj.get_workflow(workflow_id)
-        if not workflow:
-            raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found in {owner}/{repo}")
+        # Get the repository
+        gh = get_github_client()
+        repo_obj = gh.get_repo(f"{owner}/{repo}")
+        
+        # Get the workflow
+        try:
+            workflow = repo_obj.get_workflow(workflow_id)
+        except Exception as e:
+            logger.error(f"Error getting workflow {workflow_id} from {owner}/{repo}: {str(e)}")
+            # Return empty runs instead of failing
+            return {
+                "runs": [],
+                "workflow": {
+                    "id": workflow_id,
+                    "name": f"Workflow {workflow_id}",
+                    "path": "",
+                    "state": "unknown",
+                    "html_url": f"https://github.com/{owner}/{repo}/actions"
+                }
+            }
         
         logger.info(f"Fetching runs for workflow {workflow_id} in {owner}/{repo}")
         
-        # Get the workflow runs
-        runs = workflow.get_runs()
-        logger.info(f"Total runs found: {runs.totalCount}")
-        
-        # Get the most recent runs
-        recent_runs = list(runs[:per_page])
-        logger.info(f"Retrieved {len(recent_runs)} most recent runs")
-        
-        runs_data = []
-        for run in recent_runs:
-            try:
-                # Safely get run attributes with error handling
-                run_data = {
-                    "id": getattr(run, 'id', None),
-                    "run_number": getattr(run, 'run_number', None),
-                    "event": getattr(run, 'event', None),
-                    "status": getattr(run, 'status', None),
-                    "conclusion": getattr(run, 'conclusion', None),
-                    "created_at": run.created_at.isoformat() if hasattr(run, 'created_at') and run.created_at else None,
-                    "updated_at": run.updated_at.isoformat() if hasattr(run, 'updated_at') and run.updated_at else None,
-                    "html_url": getattr(run, 'html_url', None),
-                    "head_branch": getattr(run, 'head_branch', None),
+        try:
+            # Get the workflow runs with error handling
+            runs = workflow.get_runs()
+            total_count = runs.totalCount
+            logger.info(f"Total runs found: {total_count}")
+            
+            # If no runs, return early with empty list
+            if total_count == 0:
+                return {
+                    "runs": [],
+                    "workflow": {
+                        "id": workflow.id,
+                        "name": workflow.name,
+                        "path": getattr(workflow, 'path', ''),
+                        "state": getattr(workflow, 'state', 'unknown'),
+                        "html_url": getattr(workflow, 'html_url', f"https://github.com/{owner}/{repo}/actions")
+                    }
                 }
-
-                # Safely get head_repository if available
-                if hasattr(run, 'head_repository') and run.head_repository:
-                    run_data["head_repository"] = {
-                        "full_name": getattr(run.head_repository, 'full_name', None)
-                    }
-
-                # Safely get head_commit if available
-                if hasattr(run, 'head_commit') and run.head_commit:
-                    head_commit_data = {
-                        "id": getattr(run.head_commit, 'sha', None),
-                        "message": getattr(run.head_commit, 'message', None)
-                    }
-                    
-                    # Safely get author if available
-                    if hasattr(run.head_commit, 'author') and run.head_commit.author:
-                        head_commit_data["author"] = {
-                            "name": getattr(run.head_commit.author, 'name', None),
-                            "email": getattr(run.head_commit.author, 'email', None)
-                        }
-                    
-                    run_data["head_commit"] = head_commit_data
-
-                # Safely get actor if available
-                if hasattr(run, 'actor') and run.actor:
-                    actor_login = getattr(run.actor, 'login', None)
-                    run_data["actor"] = {
-                        "login": actor_login,
-                        "avatar_url": getattr(run.actor, 'avatar_url', None),
-                        "html_url": f"https://github.com/{actor_login}" if actor_login else None
-                    }
-
-                runs_data.append(run_data)
                 
-            except Exception as e:
-                logger.warning(f"Error processing workflow run {getattr(run, 'id', 'unknown')}: {str(e)}")
-                continue
-                
-        return {
-            "runs": runs_data,
-            "workflow": {
-                "id": workflow.id,
-                "name": workflow.name,
-                "path": workflow.path,
-                "state": workflow.state,
-                "created_at": workflow.created_at.isoformat() if hasattr(workflow, 'created_at') else None,
-                "updated_at": workflow.updated_at.isoformat() if hasattr(workflow, 'updated_at') else None,
-                "url": workflow.url,
-                "html_url": workflow.html_url,
-                "badge_url": workflow.badge_url if hasattr(workflow, 'badge_url') else None
+            # Get the most recent runs
+            recent_runs = list(runs[:per_page])
+            logger.info(f"Retrieved {len(recent_runs)} most recent runs")
+            
+            runs_data = []
+            for run in recent_runs:
+                try:
+                    # Basic run info
+                    run_id = getattr(run, 'id', 'unknown')
+                    run_html_url = getattr(run, 'html_url', f"https://github.com/{owner}/{repo}/actions")
+                    
+                    # Safely get run attributes with error handling
+                    run_data = {
+                        "id": run_id,
+                        "run_number": getattr(run, 'run_number', 0),
+                        "event": getattr(run, 'event', 'unknown'),
+                        "status": getattr(run, 'status', 'unknown'),
+                        "conclusion": getattr(run, 'conclusion', 'pending'),
+                        "created_at": run.created_at.isoformat() if hasattr(run, 'created_at') and run.created_at else None,
+                        "updated_at": run.updated_at.isoformat() if hasattr(run, 'updated_at') and run.updated_at else None,
+                        "html_url": run_html_url,
+                        "head_branch": getattr(run, 'head_branch', 'unknown'),
+                    }
+
+                    # Only add head_repository if we can get valid data
+                    try:
+                        if hasattr(run, 'head_repository') and run.head_repository:
+                            full_name = getattr(run.head_repository, 'full_name', None)
+                            if full_name:
+                                run_data["head_repository"] = {"full_name": full_name}
+                    except Exception as e:
+                        logger.warning(f"Error getting head_repository for run {run_id}: {str(e)}")
+
+                    # Only add head_commit if we can get valid data
+                    try:
+                        if hasattr(run, 'head_commit') and run.head_commit:
+                            head_commit_data = {}
+                            if hasattr(run.head_commit, 'sha') and run.head_commit.sha:
+                                head_commit_data["id"] = run.head_commit.sha
+                            if hasattr(run.head_commit, 'message') and run.head_commit.message:
+                                head_commit_data["message"] = run.head_commit.message
+                                
+                            # Add author info if available
+                            if hasattr(run.head_commit, 'author') and run.head_commit.author:
+                                author_data = {}
+                                if hasattr(run.head_commit.author, 'name') and run.head_commit.author.name:
+                                    author_data["name"] = run.head_commit.author.name
+                                if hasattr(run.head_commit.author, 'email') and run.head_commit.author.email:
+                                    author_data["email"] = run.head_commit.author.email
+                                if author_data:
+                                    head_commit_data["author"] = author_data
+                                    
+                            if head_commit_data:
+                                run_data["head_commit"] = head_commit_data
+                    except Exception as e:
+                        logger.warning(f"Error getting head_commit for run {run_id}: {str(e)}")
+
+                    # Add actor info if available
+                    try:
+                        if hasattr(run, 'actor') and run.actor:
+                            actor_login = getattr(run.actor, 'login', None)
+                            if actor_login:
+                                run_data["actor"] = {
+                                    "login": actor_login,
+                                    "avatar_url": getattr(run.actor, 'avatar_url', ''),
+                                    "html_url": f"https://github.com/{actor_login}"
+                                }
+                    except Exception as e:
+                        logger.warning(f"Error getting actor info for run {run_id}: {str(e)}")
+
+                    runs_data.append(run_data)
+                    
+                except Exception as e:
+                    logger.warning(f"Error processing workflow run {getattr(run, 'id', 'unknown')}: {str(e)}")
+                    continue
+                    
+            return {
+                "runs": runs_data,
+                "workflow": {
+                    "id": workflow.id,
+                    "name": getattr(workflow, 'name', f"Workflow {workflow_id}"),
+                    "path": getattr(workflow, 'path', ''),
+                    "state": getattr(workflow, 'state', 'unknown'),
+                    "created_at": workflow.created_at.isoformat() if hasattr(workflow, 'created_at') and workflow.created_at else None,
+                    "updated_at": workflow.updated_at.isoformat() if hasattr(workflow, 'updated_at') and workflow.updated_at else None,
+                    "url": getattr(workflow, 'url', ''),
+                    "html_url": getattr(workflow, 'html_url', f"https://github.com/{owner}/{repo}/actions"),
+                    "badge_url": getattr(workflow, 'badge_url', '') if hasattr(workflow, 'badge_url') else ''
+                }
             }
-        }
+            
+        except Exception as e:
+            logger.error(f"Error fetching runs for workflow {workflow_id}: {str(e)}")
+            # Return empty runs with basic workflow info
+            return {
+                "runs": [],
+                "workflow": {
+                    "id": workflow.id if hasattr(workflow, 'id') else workflow_id,
+                    "name": getattr(workflow, 'name', f"Workflow {workflow_id}"),
+                    "path": getattr(workflow, 'path', ''),
+                    "state": getattr(workflow, 'state', 'unknown'),
+                    "html_url": getattr(workflow, 'html_url', f"https://github.com/{owner}/{repo}/actions")
+                }
+            }
         
     except HTTPException:
         raise

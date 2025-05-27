@@ -590,28 +590,46 @@ async function loadWorkflows(owner, repo, container) {
 
 async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container) {
     try {
+        if (!container || !container.isConnected) {
+            console.log(`Container not available for ${owner}/${repo}/${workflowId}`);
+            return;
+        }
+
         console.log(`Loading runs for workflow: ${workflowName} (${workflowId})`);
-        const response = await fetch(`/api/runs/${owner}/${repo}/${workflowId}?per_page=3`);
+        let response;
+        let data;
         
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`HTTP error! status: ${response.status}, response:`, errorText);
-            throw new Error(`HTTP error! status: ${response.status}`);
+        try {
+            response = await fetch(`/api/runs/${owner}/${repo}/${workflowId}?per_page=3`);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`HTTP error! status: ${response.status}, response:`, errorText);
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            data = await response.json();
+        } catch (error) {
+            console.error(`Error fetching runs for ${workflowName}:`, error);
+            // If we can't get the runs, show an error but don't break the UI
+            updateWorkflowErrorUI(workflowId, workflowName, container, 'Failed to load workflow runs');
+            return;
         }
         
-        const data = await response.json();
         console.log(`Received data for ${workflowName}:`, data);
         
-        const runs = data.runs || [];
+        const runs = Array.isArray(data.runs) ? data.runs : [];
         console.log(`Found ${runs.length} runs for ${workflowName}`);
         
-        // Try to find existing workflow element to update it instead of recreating
+        // Get or create workflow element
         let workflowElement = document.getElementById(`workflow-${workflowId}`);
         
         if (!workflowElement) {
             workflowElement = document.createElement('div');
             workflowElement.className = 'workflow mb-3';
             workflowElement.id = `workflow-${workflowId}`;
+            // Only append if we're creating a new element
+            container.appendChild(workflowElement);
         }
         
         if (runs.length === 0) {
@@ -621,20 +639,29 @@ async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container
                     <span class="workflow-name">${workflowName}</span>
                     <span class="workflow-status">No runs</span>
                 </div>`;
-                
-            // Only append if not already in the container
-            if (!container.contains(workflowElement)) {
-                container.appendChild(workflowElement);
-            }
             return;
         }
         
         // Sort runs by creation date (newest first)
-        runs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        const sortedRuns = [...runs].sort((a, b) => {
+            const dateA = a.created_at ? new Date(a.created_at) : new Date(0);
+            const dateB = b.created_at ? new Date(b.created_at) : new Date(0);
+            return dateB - dateA;
+        });
         
-        // Create workflow header with latest run status
-        const latestRun = runs[0];
+        // Use the latest run with fallbacks for missing data
+        const latestRun = sortedRuns[0] || {};
         const status = latestRun.conclusion || latestRun.status || 'unknown';
+        const runNumber = latestRun.run_number || '?';
+        const branch = latestRun.head_branch || 'unknown';
+        const commitMsg = latestRun.head_commit?.message || 'No commit message';
+        const commitAuthor = latestRun.head_commit?.author?.name || 'Unknown';
+        const commitDate = latestRun.head_commit?.timestamp || latestRun.created_at;
+        const runUrl = latestRun.html_url || `https://github.com/${owner}/${repo}/actions`;
+        
+        // Format the commit message (first line only)
+        const shortCommitMsg = commitMsg.split('\n')[0];
+        const formattedDate = commitDate ? formatDate(commitDate) : 'Unknown date';
         
         // Only update the content if it's different to avoid flickering
         const newContent = `
@@ -647,21 +674,21 @@ async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container
                     <div class="run-item">
                         <div class="run-header">
                             <span class="run-status ${status}"></span>
-                            <span class="run-number">#${latestRun.run_number || '?'}</span>
-                            <span class="run-branch">${latestRun.head_branch || 'unknown'}</span>
-                            ${latestRun.html_url ? `
-                                <a href="${latestRun.html_url}" target="_blank" class="run-link">
-                                    <i class="bi-box-arrow-up-right"></i>
-                                </a>
-                            ` : ''}
+                            <a href="${runUrl}" target="_blank" class="run-number">#${runNumber}</a>
+                            <span class="run-branch">${branch}</span>
+                            <a href="${runUrl}" target="_blank" class="run-link ms-2" title="View run in GitHub">
+                                <i class="bi-box-arrow-up-right"></i>
+                            </a>
                         </div>
                         <div class="run-details">
-                            <div class="commit-message" title="${(latestRun.head_commit?.message || 'No commit message').split('\n')[0]}">
-                                ${(latestRun.head_commit?.message || 'No commit message').split('\n')[0]}
-                            </div>
+                            <div class="commit-message" title="${commitMsg.replace(/"/g, '&quot;')}">${shortCommitMsg}</div>
                             <div class="commit-meta">
-                                <span class="commit-author">${latestRun.head_commit?.author?.name || 'Unknown'}</span>
-                                <span class="commit-date">${latestRun.created_at ? formatDate(latestRun.created_at) : 'N/A'}</span>
+                                <span class="commit-author">
+                                    <i class="bi-person-fill"></i> ${commitAuthor}
+                                </span>
+                                <span class="commit-date">
+                                    <i class="bi-clock"></i> ${formattedDate}
+                                </span>
                             </div>
                         </div>
                     </div>
@@ -701,6 +728,31 @@ async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container
         
         errorElement.textContent = `Failed to load runs for ${workflowName}. ${error.message || ''}`;
     }
+}
+
+// Helper function to update UI when workflow runs fail to load
+function updateWorkflowErrorUI(workflowId, workflowName, container, errorMessage) {
+    // Try to find existing workflow element
+    let workflowElement = document.getElementById(`workflow-${workflowId}`);
+    
+    if (!workflowElement) {
+        // Create a new element if it doesn't exist
+        workflowElement = document.createElement('div');
+        workflowElement.className = 'workflow mb-3';
+        workflowElement.id = `workflow-${workflowId}`;
+        container.appendChild(workflowElement);
+    }
+    
+    // Update the element with error message
+    workflowElement.innerHTML = `
+        <div class="workflow-header">
+            <span class="workflow-name">${workflowName}</span>
+            <span class="badge bg-warning">Error</span>
+        </div>
+        <div class="workflow-error p-2 bg-light text-danger small">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+            ${errorMessage}
+        </div>`;
 }
 
 // Helper function to get badge class based on status
