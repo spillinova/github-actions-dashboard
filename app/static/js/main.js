@@ -474,6 +474,8 @@ function removeRepository(owner, repoName) {
 
 async function loadWorkflows(owner, repo, container) {
     try {
+        console.log(`Loading workflows for ${owner}/${repo}`);
+        
         // If no container is provided, try to find the main container
         if (!container) {
             container = document.getElementById('repo-container');
@@ -485,15 +487,17 @@ async function loadWorkflows(owner, repo, container) {
         
         // Create a unique ID for this repository's workflow container
         const workflowContainerId = `workflows-${owner}-${repo}`;
+        const repoCardId = `repo-${owner}-${repo}`;
         
         // Check if we already have a workflow container for this repo
         let workflowContainer = document.getElementById(workflowContainerId);
+        let repoCard = document.getElementById(repoCardId);
         
-        if (!workflowContainer) {
-            // Create a new card for this repository
-            const repoCard = document.createElement('div');
+        // Create a new card if it doesn't exist
+        if (!repoCard) {
+            repoCard = document.createElement('div');
             repoCard.className = 'card mb-4';
-            repoCard.id = `repo-${owner}-${repo}`;
+            repoCard.id = repoCardId;
             
             // Set up the card content
             repoCard.innerHTML = `
@@ -513,43 +517,68 @@ async function loadWorkflows(owner, repo, container) {
             // Add the card to the container
             container.appendChild(repoCard);
             workflowContainer = document.getElementById(workflowContainerId);
+            
+            if (!workflowContainer) {
+                console.error(`Failed to create workflow container for ${owner}/${repo}`);
+                return;
+            }
+        } else if (!workflowContainer) {
+            // If we have a card but no container, try to find or recreate it
+            const cardBody = repoCard.querySelector('.card-body');
+            if (cardBody) {
+                workflowContainer = document.createElement('div');
+                workflowContainer.id = workflowContainerId;
+                workflowContainer.className = 'workflow-list';
+                cardBody.innerHTML = '';
+                cardBody.appendChild(workflowContainer);
+            } else {
+                console.error(`Card body not found for ${owner}/${repo}`);
+                return;
+            }
         }
         
         // Fetch workflows for this repository
         const response = await fetch(`/api/workflows/${owner}/${repo}`);
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            const errorText = await response.text();
+            throw new Error(`HTTP error! status: ${response.status}, response: ${errorText}`);
         }
+        
         const data = await response.json();
         const workflows = data.workflows || [];
         
-        // Get the workflow container again in case it was recreated
-        const workflowList = document.getElementById(workflowContainerId);
-        if (!workflowList) {
-            console.error(`Workflow list container not found for ${owner}/${repo}`);
+        // Get the workflow container again to ensure we have the latest reference
+        workflowContainer = document.getElementById(workflowContainerId);
+        if (!workflowContainer) {
+            console.error(`Workflow list container not found for ${owner}/${repo} after fetch`);
             return;
         }
         
         if (workflows.length === 0) {
-            workflowList.innerHTML = '<p class="text-muted">No workflows found for this repository.</p>';
+            workflowContainer.innerHTML = '<p class="text-muted">No workflows found for this repository.</p>';
+            // Remove spinner
+            const spinner = repoCard.querySelector('.spinner');
+            if (spinner) spinner.remove();
             return;
         }
         
-        workflowList.innerHTML = '';
+        // Clear existing content but keep the container
+        workflowContainer.innerHTML = '';
         
         // Load workflow runs for each workflow
         for (const workflow of workflows) {
-            await loadWorkflowRuns(owner, repo, workflow.id, workflow.name, workflowList);
+            try {
+                await loadWorkflowRuns(owner, repo, workflow.id, workflow.name, workflowContainer);
+            } catch (error) {
+                console.error(`Error loading runs for workflow ${workflow.name}:`, error);
+                // Continue with next workflow even if one fails
+                continue;
+            }
         }
         
         // Remove spinner once loaded
-        const repoCard = document.getElementById(`repo-${owner}-${repo}`);
-        if (repoCard) {
-            const spinner = repoCard.querySelector('.spinner');
-            if (spinner) {
-                spinner.remove();
-            }
-        }
+        const spinner = repoCard.querySelector('.spinner');
+        if (spinner) spinner.remove();
     } catch (error) {
         console.error(`Error loading workflows for ${owner}/${repo}:`, error);
         const workflowList = document.getElementById(`workflows-${owner}-${repo}`);
