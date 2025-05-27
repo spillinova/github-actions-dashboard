@@ -158,6 +158,116 @@ function renderRepositories(repos, title) {
     });
 }
 
+// Configuration
+const POLLING_INTERVAL = 60000; // 1 minute
+
+// Global variables
+let pollingIntervalId = null;
+let isPolling = false;
+
+// Initialize polling
+function startPolling() {
+    if (pollingIntervalId) {
+        clearInterval(pollingIntervalId);
+    }
+    
+    const refreshBtn = document.getElementById('refreshRepos');
+    if (refreshBtn) {
+        refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
+        refreshBtn.title = 'Refresh now';
+    }
+    
+    pollingIntervalId = setInterval(async () => {
+        await refreshAllWorkflows(true);
+    }, POLLING_INTERVAL);
+    
+    isPolling = true;
+    console.log('Auto-refresh started');
+}
+
+// Stop polling
+function stopPolling() {
+    if (pollingIntervalId) {
+        clearInterval(pollingIntervalId);
+        pollingIntervalId = null;
+    }
+    isPolling = false;
+    console.log('Auto-refresh stopped');
+}
+
+// Toggle polling
+function togglePolling() {
+    if (isPolling) {
+        stopPolling();
+    } else {
+        startPolling();
+    }
+    updatePollingButton();
+}
+
+// Update the polling button state
+function updatePollingButton() {
+    const refreshBtn = document.getElementById('refreshRepos');
+    if (!refreshBtn) return;
+    
+    if (isPolling) {
+        refreshBtn.classList.add('polling-active');
+        refreshBtn.title = 'Auto-refresh enabled (click to disable)';
+    } else {
+        refreshBtn.classList.remove('polling-active');
+        refreshBtn.title = 'Auto-refresh disabled (click to enable)';
+    }
+}
+
+// Refresh all workflows
+async function refreshAllWorkflows(silent = false) {
+    const refreshBtn = document.getElementById('refreshRepos');
+    if (!refreshBtn) return;
+    
+    // Don't refresh if already refreshing
+    if (refreshBtn.classList.contains('refreshing')) {
+        return;
+    }
+    
+    // Show refreshing state
+    refreshBtn.classList.add('refreshing');
+    refreshBtn.disabled = true;
+    refreshBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+    
+    try {
+        const savedRepos = getSavedRepos();
+        const container = document.getElementById('repo-container');
+        
+        if (container && savedRepos.length > 0) {
+            // Only clear if not silent (initial load)
+            if (!silent) {
+                container.innerHTML = '';
+            }
+            
+            // Refresh each repository
+            for (const repo of savedRepos) {
+                await loadWorkflows(repo.owner, repo.name, container);
+            }
+            
+            if (!silent) {
+                console.log('Workflows refreshed successfully');
+            }
+        }
+    } catch (error) {
+        console.error('Error refreshing workflows:', error);
+    } finally {
+        // Reset button state after a short delay to show the spinner
+        setTimeout(() => {
+            if (refreshBtn) {
+                refreshBtn.disabled = false;
+                refreshBtn.innerHTML = '<i class="bi-arrow-clockwise"></i>';
+                refreshBtn.classList.remove('refreshing');
+                updatePollingButton();
+            }
+        }, 500);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize the dashboard
     initializeDashboard();
@@ -166,6 +276,22 @@ document.addEventListener('DOMContentLoaded', function() {
     const repoSearch = document.getElementById('repoSearch');
     if (repoSearch) {
         repoSearch.addEventListener('input', debounce(handleRepoSearch, 500));
+    }
+    
+    // Set up refresh button
+    const refreshBtn = document.getElementById('refreshRepos');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            await refreshAllWorkflows();
+        });
+        
+        // Add right-click to toggle auto-refresh
+        refreshBtn.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            togglePolling();
+            return false;
+        });
     }
     
     // Load repositories when modal is shown
@@ -179,6 +305,9 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+    
+    // Start polling when the page loads
+    startPolling();
 });
 
 async function initializeDashboard() {
@@ -428,6 +557,7 @@ async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
+        console.log(`Workflow runs for ${owner}/${repo}/${workflowId}:`, data); // Debug log
         const runs = data.runs || [];
         
         if (!runs || runs.length === 0) {
@@ -444,23 +574,69 @@ async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container
         
         // Get the most recent run
         const latestRun = runs[0];
-        const status = latestRun.conclusion || latestRun.status;
+        const status = latestRun.conclusion || latestRun.status || 'unknown';
+        const statusText = status === 'completed' ? 'success' : status === 'in_progress' ? 'in progress' : status;
+        
+        // Get branch information - try different possible locations
+        let branchName = 'Not specified';
+        if (latestRun.head_branch) {
+            branchName = latestRun.head_branch;
+        } else if (latestRun.head_repository?.full_name) {
+            // Try to extract branch from head repository name if available
+            const match = latestRun.head_repository.full_name.match(/[^/]+$/);
+            if (match) branchName = match[0];
+        }
         
         const workflowElement = document.createElement('div');
         workflowElement.className = `workflow-item ${status}`;
         workflowElement.innerHTML = `
             <div class="workflow-header">
-                <span class="workflow-name">${workflowName}</span>
-                <span class="workflow-status ${status}">${status || 'in progress'}</span>
+                <a href="${data.workflow?.html_url || '#'}" target="_blank" class="workflow-name">
+                    ${workflowName}
+                </a>
+                <span class="workflow-status ${status}">${statusText}</span>
             </div>
             <div class="workflow-details">
-                ${latestRun.head_branch ? 
-                    `<div>Branch: ${latestRun.head_branch}</div>` : 
-                    `<div class="text-muted">Branch: Not specified</div>`
+                <div class="workflow-detail-row">
+                    <span class="detail-label">Branch:</span>
+                    <span class="detail-value">${branchName}</span>
+                </div>
+                ${latestRun.head_commit?.message ? `
+                    <div class="workflow-detail-row">
+                        <span class="detail-label">Commit:</span>
+                        <span class="detail-value" title="${latestRun.head_commit.message.replace(/"/g, '&quot;')}">
+                            ${latestRun.head_commit.message.split('\n')[0].substring(0, 50)}${latestRun.head_commit.message.length > 50 ? '...' : ''}
+                        </span>
+                    </div>` : ''
                 }
-                <div>Commit: ${latestRun.head_commit?.message?.split('\n')[0] || 'N/A'}</div>
-                <div>Run by: ${latestRun.actor?.login || 'N/A'}</div>
-                <div>Last run: ${latestRun.created_at ? formatDate(latestRun.created_at) : 'N/A'}</div>
+                ${latestRun.actor?.login ? `
+                    <div class="workflow-detail-row">
+                        <span class="detail-label">Run by:</span>
+                        <span class="detail-value">
+                            ${latestRun.actor.avatar_url ? 
+                                `<img src="${latestRun.actor.avatar_url}" alt="${latestRun.actor.login}" class="avatar-icon" />` : ''
+                            }
+                            <a href="https://github.com/${latestRun.actor.login}" target="_blank">
+                                ${latestRun.actor.login}
+                            </a>
+                        </span>
+                    </div>` : ''
+                }
+                ${latestRun.created_at ? `
+                    <div class="workflow-detail-row">
+                        <span class="detail-label">Last run:</span>
+                        <span class="detail-value" title="${new Date(latestRun.created_at).toLocaleString()}">
+                            ${formatDate(latestRun.created_at)}
+                        </span>
+                    </div>` : ''
+                }
+                ${latestRun.html_url ? `
+                    <div class="workflow-detail-row">
+                        <a href="${latestRun.html_url}" target="_blank" class="btn btn-sm btn-outline-secondary mt-2">
+                            <i class="bi bi-box-arrow-up-right"></i> View in GitHub
+                        </a>
+                    </div>` : ''
+                }
             </div>`;
         
         container.appendChild(workflowElement);

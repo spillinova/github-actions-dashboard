@@ -123,6 +123,45 @@ h1 {
     to { transform: rotate(360deg); }
 }
 
+/* Workflow status indicators */
+.workflow-status {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    text-transform: capitalize;
+    font-weight: 500;
+}
+
+.workflow-status.success {
+    background-color: #dafbe1;
+    color: #1a7f37;
+}
+
+.workflow-status.failure {
+    background-color: #ffebe9;
+    color: #cf222e;
+}
+
+.workflow-status.in_progress,
+.workflow-status.queued,
+.workflow-status.pending {
+    background-color: #fff8c5;
+    color: #9a6700;
+}
+
+.workflow-status.unknown {
+    background-color: #eaeef2;
+    color: #4d555e;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    #refreshRepos {
+        padding: 4px 8px;
+        font-size: 0.9rem;
+    }
+}
+
 /* Form styles */
 .form-group {
     margin-bottom: 15px;

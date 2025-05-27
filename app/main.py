@@ -361,21 +361,55 @@ async def get_workflow_runs(owner: str, repo: str, workflow_id: str, per_page: i
         
         runs = workflow.get_runs()[:per_page]
         
+        runs_data = []
+        for run in runs:
+            try:
+                # Get the run details
+                run_data = {
+                    "id": run.id,
+                    "run_number": run.run_number,
+                    "event": run.event,
+                    "status": run.status,
+                    "conclusion": run.conclusion if hasattr(run, 'conclusion') else None,
+                    "created_at": run.created_at.isoformat() if hasattr(run, 'created_at') else None,
+                    "updated_at": run.updated_at.isoformat() if hasattr(run, 'updated_at') else None,
+                    "html_url": run.html_url if hasattr(run, 'html_url') else None,
+                    "head_branch": run.head_branch if hasattr(run, 'head_branch') else None,
+                    "head_repository": {
+                        "full_name": run.head_repository.full_name if hasattr(run, 'head_repository') and run.head_repository else None,
+                    } if hasattr(run, 'head_repository') and run.head_repository else None,
+                    "head_commit": {
+                        "id": run.head_commit.id if (hasattr(run, 'head_commit') and run.head_commit) else None,
+                        "message": run.head_commit.message if (hasattr(run, 'head_commit') and run.head_commit) else None,
+                        "author": {
+                            "name": run.head_commit.author.name if (hasattr(run, 'head_commit') and run.head_commit and hasattr(run.head_commit, 'author')) else None,
+                            "email": run.head_commit.author.email if (hasattr(run, 'head_commit') and run.head_commit and hasattr(run.head_commit, 'author')) else None,
+                        } if hasattr(run, 'head_commit') and run.head_commit and hasattr(run.head_commit, 'author') else None,
+                    } if hasattr(run, 'head_commit') and run.head_commit else None,
+                    "actor": {
+                        "login": run.actor.login if hasattr(run, 'actor') and run.actor else None,
+                        "avatar_url": run.actor.avatar_url if hasattr(run, 'actor') and run.actor else None,
+                        "html_url": f"https://github.com/{run.actor.login}" if hasattr(run, 'actor') and run.actor and hasattr(run.actor, 'login') else None,
+                    } if hasattr(run, 'actor') and run.actor else None
+                }
+                runs_data.append(run_data)
+            except Exception as e:
+                logger.warning(f"Error processing workflow run {run.id}: {str(e)}")
+                continue
+                
         return {
-            "runs": [{
-                "id": run.id,
-                "run_number": run.run_number,
-                "event": run.event,
-                "status": run.status,
-                "conclusion": run.conclusion if hasattr(run, 'conclusion') else None,
-                "created_at": run.created_at.isoformat() if hasattr(run, 'created_at') else None,
-                "updated_at": run.updated_at.isoformat() if hasattr(run, 'updated_at') else None,
-                "html_url": run.html_url if hasattr(run, 'html_url') else None,
-                "head_commit": {
-                    "message": run.head_commit.message if (hasattr(run, 'head_commit') and run.head_commit) else None,
-                    "author": run.head_commit.author.name if (hasattr(run, 'head_commit') and run.head_commit and hasattr(run.head_commit, 'author')) else None,
-                } if hasattr(run, 'head_commit') and run.head_commit else None
-            } for run in runs]
+            "runs": runs_data,
+            "workflow": {
+                "id": workflow.id,
+                "name": workflow.name,
+                "path": workflow.path,
+                "state": workflow.state,
+                "created_at": workflow.created_at.isoformat() if hasattr(workflow, 'created_at') else None,
+                "updated_at": workflow.updated_at.isoformat() if hasattr(workflow, 'updated_at') else None,
+                "url": workflow.url,
+                "html_url": workflow.html_url,
+                "badge_url": workflow.badge_url if hasattr(workflow, 'badge_url') else None
+            }
         }
         
     except HTTPException:
