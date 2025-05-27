@@ -792,21 +792,18 @@ async function handleAddRepo(event) {
     }
     
     const repoFullName = `${owner}/${repoName}`;
-        showErrorInModal('Please provide both owner and repository name');
-        return;
-    }
-
+    
     hideErrorInModal();
 
     // Disable form while processing
-    const submitButton = form.querySelector('button[type="submit"]');
+    const submitButton = event.target.closest('form')?.querySelector('button[type="submit"]');
     const originalButtonText = submitButton.innerHTML;
     submitButton.disabled = true;
     submitButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Adding...';
 
     try {
         // Verify the repository exists and we have access to it
-        const response = await fetch(`/api/workflows/${owner}/${repo}`);
+        const response = await fetch(`/api/workflows/${owner}/${repoName}`);
         if (!response.ok) {
             const error = await response.json().catch(() => ({}));
             throw new Error(error.detail || 'Repository not found or access denied');
@@ -823,7 +820,7 @@ async function handleAddRepo(event) {
         // Add the new repository
         const newRepo = { 
             owner: owner.toLowerCase(), 
-            name: repo.toLowerCase(), 
+            name: repoName.toLowerCase(), 
             full_name: repoFullName.toLowerCase()
         };
 
@@ -844,7 +841,7 @@ async function handleAddRepo(event) {
         const container = document.getElementById('repo-container');
         if (container) {
             container.innerHTML = '';
-            await loadWorkflows(owner, repo, container);
+            await loadWorkflows(owner, repoName, container);
         }
 
     } catch (error) {
