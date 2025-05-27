@@ -167,22 +167,23 @@ let isPolling = false;
 
 // Initialize polling
 function startPolling() {
-    if (pollingIntervalId) {
-        clearInterval(pollingIntervalId);
-    }
+    // Clear any existing interval
+    stopPolling();
     
-    const refreshBtn = document.getElementById('refreshRepos');
-    if (refreshBtn) {
-        refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
-        refreshBtn.title = 'Refresh now';
-    }
+    // Initial load
+    refreshAllWorkflows(true);
     
+    // Set up polling with error handling
     pollingIntervalId = setInterval(async () => {
-        await refreshAllWorkflows(true);
+        try {
+            await refreshAllWorkflows(false);
+        } catch (error) {
+            console.error('Polling error:', error);
+            // Reset on error to prevent cascading failures
+            stopPolling();
+            startPolling();
+        }
     }, POLLING_INTERVAL);
-    
-    isPolling = true;
-    console.log('Auto-refresh started');
 }
 
 // Stop polling
@@ -191,162 +192,66 @@ function stopPolling() {
         clearInterval(pollingIntervalId);
         pollingIntervalId = null;
     }
-    isPolling = false;
-    console.log('Auto-refresh stopped');
 }
 
-// Toggle polling
-function togglePolling() {
-    if (isPolling) {
-        stopPolling();
-    } else {
-        startPolling();
-    }
-    updatePollingButton();
-}
-
-// Update the polling button state
-function updatePollingButton() {
-    const refreshBtn = document.getElementById('refreshRepos');
-    if (!refreshBtn) return;
+// Initialize the application
+function initializeApp() {
+    if (isInitialized) return;
+    isInitialized = true;
     
-    if (isPolling) {
-        refreshBtn.classList.add('polling-active');
-        refreshBtn.title = 'Auto-refresh enabled (click to disable)';
-    } else {
-        refreshBtn.classList.remove('polling-active');
-        refreshBtn.title = 'Auto-refresh disabled (click to enable)';
-    }
-}
-
-// Refresh all workflows
-async function refreshAllWorkflows(silent = false) {
-    const refreshBtn = document.getElementById('refreshRepos');
-    if (!refreshBtn) return;
+    // Load repositories and start polling
+    loadRepositories();
+    startPolling();
     
-    // Don't refresh if already refreshing
-    if (refreshBtn.classList.contains('refreshing')) {
-        console.log('Refresh already in progress, skipping...');
-        return;
-    }
-    
-    // Show refreshing state
-    refreshBtn.classList.add('refreshing');
-    refreshBtn.disabled = true;
-    refreshBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
-    
-    try {
-        const savedRepos = getSavedRepos();
-        const container = document.getElementById('repo-container');
-        
-        if (container && savedRepos.length > 0) {
-            // Only clear if this is not a silent refresh (initial load or manual refresh)
-            if (!silent) {
-                container.innerHTML = '';
-            }
-            
-            // Refresh each repository
-            for (const repo of savedRepos) {
-                try {
-                    await loadWorkflows(repo.owner, repo.name, container);
-                } catch (error) {
-                    console.error(`Error loading workflows for ${repo.owner}/${repo.name}:`, error);
-                    // Continue with next repo even if one fails
-                    continue;
-                }
-            }
-            
-            if (!silent) {
-                console.log('Workflows refreshed successfully');
-            } else {
-                console.log('Workflows updated via auto-refresh');
-            }
-        }
-    } catch (error) {
-        console.error('Error refreshing workflows:', error);
-    } finally {
-        // Reset button state after a short delay to show the spinner
-        setTimeout(() => {
-            if (refreshBtn) {
-                refreshBtn.disabled = false;
-                refreshBtn.innerHTML = '<i class="bi-arrow-clockwise"></i>';
-                refreshBtn.classList.remove('refreshing');
-                updatePollingButton();
-            }
-        }, 500);
-    }
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-    // Initialize the dashboard
-    initializeDashboard();
-    
-    // Set up repository search
+    // Set up search functionality
     const repoSearch = document.getElementById('repoSearch');
     if (repoSearch) {
-        repoSearch.addEventListener('input', debounce(handleRepoSearch, 500));
+        // Remove any existing listeners to prevent duplicates
+        const newRepoSearch = repoSearch.cloneNode(true);
+        repoSearch.parentNode.replaceChild(newRepoSearch, repoSearch);
+        
+        newRepoSearch.addEventListener('input', debounce(handleRepoSearch, 500));
     }
     
     // Set up refresh button
     const refreshBtn = document.getElementById('refreshRepos');
     if (refreshBtn) {
-        refreshBtn.addEventListener('click', async (e) => {
+        // Clone and replace to remove existing listeners
+        const newRefreshBtn = refreshBtn.cloneNode(true);
+        refreshBtn.parentNode.replaceChild(newRefreshBtn, refreshBtn);
+        
+        // Single click for normal refresh
+        newRefreshBtn.addEventListener('click', async (e) => {
             e.preventDefault();
-            await refreshAllWorkflows();
+            await refreshAllWorkflows(true);
         });
         
-        // Add right-click to toggle auto-refresh
-        refreshBtn.addEventListener('contextmenu', (e) => {
+        // Right-click to force refresh from GitHub
+        newRefreshBtn.addEventListener('contextmenu', (e) => {
             e.preventDefault();
-            togglePolling();
+            refreshAllWorkflows(true, true);
             return false;
         });
     }
     
-    // Load repositories when modal is shown
+    // Set up modal events
     const addRepoModal = document.getElementById('addRepoModal');
     if (addRepoModal) {
-        addRepoModal.addEventListener('shown.bs.modal', () => {
-            loadMyRepos();
-            const searchInput = addRepoModal.querySelector('input[type="text"]');
+        // Remove existing listeners
+        const newModal = addRepoModal.cloneNode(true);
+        addRepoModal.parentNode.replaceChild(newModal, addRepoModal);
+        
+        newModal.addEventListener('shown.bs.modal', () => {
+            const searchInput = document.getElementById('repoSearch');
             if (searchInput) {
                 searchInput.focus();
             }
         });
     }
     
-    // Start polling when the page loads
-    startPolling();
-});
-
-async function initializeDashboard() {
-    // Load any previously added repositories from localStorage
-    const savedRepos = getSavedRepos();
-    
-    // Only proceed if we have a valid repository list container
-    const repoList = document.getElementById('repoList');
-    if (!repoList) {
-        console.warn('Repository list container not found');
-        return;
-    }
-    
     // Update the repositories list in the sidebar
+    const savedRepos = getSavedRepos();
     updateReposList(savedRepos);
-    
-    // Set up refresh button if it exists
-    const refreshBtn = document.getElementById('refreshRepos');
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', async () => {
-            const savedRepos = getSavedRepos();
-            const container = document.getElementById('repo-container');
-            if (container) {
-                container.innerHTML = '';
-                for (const repo of savedRepos) {
-                    await loadWorkflows(repo.owner, repo.name, container);
-                }
-            }
-        });
-    }
     
     // Clear any existing content in the main container
     const container = document.getElementById('repo-container');
@@ -785,49 +690,108 @@ function formatDate(dateString) {
     });
 }
 
-// Initialize the dashboard when the DOM is fully loaded
-document.addEventListener('DOMContentLoaded', function() {
-    // Initialize the dashboard
-    initializeDashboard();
+// Track if initialization has been done
+let isInitialized = false;
+
+// Initialize the application when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    if (isInitialized) return;
+    isInitialized = true;
     
-    // Set up event listeners
+    // Initialize the dashboard
+    if (typeof initializeDashboard === 'function') {
+        initializeDashboard();
+    }
+    
+    // Set up refresh button with debounce
     const refreshBtn = document.getElementById('refreshRepos');
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', () => refreshAllWorkflows(false));
+    if (refreshBtn && !refreshBtn.hasAttribute('data-listener-added')) {
+        refreshBtn.setAttribute('data-listener-added', 'true');
+        refreshBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            refreshAllWorkflows(true);
+        });
     }
     
     // Start polling if enabled in settings
     const savedPolling = localStorage.getItem('autoRefreshEnabled');
-    if (savedPolling === 'true') {
+    if (savedPolling === 'true' && typeof startPolling === 'function') {
         startPolling();
     }
+    
+    // Set up form submission with delegation
+    const addRepoForm = document.getElementById('addRepoForm');
+    if (addRepoForm && !addRepoForm.hasAttribute('data-listener-added')) {
+        addRepoForm.setAttribute('data-listener-added', 'true');
+        addRepoForm.addEventListener('submit', handleAddRepo);
+    }
+    
+    // Set up search with debounce
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput && !searchInput.hasAttribute('data-listener-added')) {
+        searchInput.setAttribute('data-listener-added', 'true');
+        searchInput.addEventListener('input', debounce(handleRepoSearch, 500));
+    }
+    
+    // Use event delegation for dynamic add-repo buttons
+    document.body.addEventListener('click', (e) => {
+        const addBtn = e.target.closest('.add-repo');
+        if (addBtn) {
+            e.preventDefault();
+            handleAddRepo(e);
+        }
+    });
 });
 
+// Show error message in modal
 function showErrorInModal(message) {
     const errorElement = document.getElementById('repoError');
     if (errorElement) {
         errorElement.textContent = message;
         errorElement.classList.remove('d-none');
+        // Auto-hide after 5 seconds
+        setTimeout(hideErrorInModal, 5000);
     }
 }
 
+// Hide error message in modal
 function hideErrorInModal() {
     const errorElement = document.getElementById('repoError');
     if (errorElement) {
+        errorElement.textContent = '';
         errorElement.classList.add('d-none');
     }
 }
 
+// Handle adding a repository
 async function handleAddRepo(event) {
     event.preventDefault();
-
-    const form = event.target;
-    const formData = new FormData(form);
-    const owner = formData.get('owner').trim();
-    const repo = formData.get('repo').trim();
-    const repoFullName = `${owner}/${repo}`;
-
-    if (!owner || !repo) {
+    
+    let owner, repoName;
+    
+    // Handle both button click and form submission
+    if (event.target.matches('button.add-repo, .add-repo *')) {
+        const button = event.target.closest('.add-repo');
+        if (!button) return;
+        
+        owner = button.dataset.owner?.trim();
+        repoName = button.dataset.repo?.trim();
+    } else if (event.target.matches('form')) {
+        const formData = new FormData(event.target);
+        owner = formData.get('owner')?.trim();
+        repoName = formData.get('repo')?.trim();
+    } else {
+        console.warn('Unexpected element triggered handleAddRepo:', event.target);
+        return;
+    }
+    
+    if (!owner || !repoName) {
+        console.error('Missing owner or repository name');
+        showErrorInModal('Missing repository information');
+        return;
+    }
+    
+    const repoFullName = `${owner}/${repoName}`;
         showErrorInModal('Please provide both owner and repository name');
         return;
     }
@@ -1066,7 +1030,7 @@ async function handleAddRepo(event) {
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.getElementById('addRepoForm');
     if (form) {
-        form.addEventListener('submit', handleAddRepo);
+        form.addEventListener('submit', handleAddRepoForm);
     }
 
     // Clear error when modal is hidden
