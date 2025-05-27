@@ -368,9 +368,12 @@ async function loadWorkflows(owner, repo, container) {
         }
         
         // Remove spinner once loaded
-        const spinner = repoElement.querySelector('.spinner');
-        if (spinner) {
-            spinner.remove();
+        const repoCard = document.getElementById(`repo-${owner}-${repo}`);
+        if (repoCard) {
+            const spinner = repoCard.querySelector('.spinner');
+            if (spinner) {
+                spinner.remove();
+            }
         }
     } catch (error) {
         console.error(`Error loading workflows for ${owner}/${repo}:`, error);
