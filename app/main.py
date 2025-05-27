@@ -392,12 +392,40 @@ async def get_workflow_runs(owner: str, repo: str, workflow_id: str, per_page: i
             recent_runs = list(runs[:per_page])
             logger.info(f"Retrieved {len(recent_runs)} most recent runs")
             
+            # Debug: Log the raw run data
+            for i, run in enumerate(recent_runs):
+                logger.debug(f"\n=== Run {i+1} ===")
+                logger.debug(f"Run ID: {getattr(run, 'id', 'N/A')}")
+                logger.debug(f"Run number: {getattr(run, 'run_number', 'N/A')}")
+                logger.debug(f"Head SHA: {getattr(run, 'head_sha', 'N/A')}")
+                logger.debug(f"Event: {getattr(run, 'event', 'N/A')}")
+                
+                # Log all available attributes
+                logger.debug("Available attributes: " + ", ".join([attr for attr in dir(run) if not attr.startswith('_')]))
+                
+                # Log raw data if available
+                if hasattr(run, '_rawData'):
+                    logger.debug("Raw run data: " + str(run._rawData))
+                
+                # Log head_commit if available
+                if hasattr(run, 'head_commit'):
+                    logger.debug(f"head_commit: {getattr(run.head_commit, '__dict__', 'N/A')}")
+                
+                # Log actor/user info
+                if hasattr(run, 'actor'):
+                    logger.debug(f"actor: {getattr(run.actor, '__dict__', 'N/A')}")
+                if hasattr(run, 'user'):
+                    logger.debug(f"user: {getattr(run.user, '__dict__', 'N/A')}")
+            
             runs_data = []
             for run in recent_runs:
                 try:
-                    # Basic run info
-                    run_id = getattr(run, 'id', 'unknown')
-                    run_html_url = getattr(run, 'html_url', f"https://github.com/{owner}/{repo}/actions")
+                    # Get raw data directly
+                    raw_data = run._rawData if hasattr(run, '_rawData') else {}
+                    
+                    # Basic run info with raw data fallback
+                    run_id = getattr(run, 'id', raw_data.get('id', 'unknown'))
+                    run_html_url = getattr(run, 'html_url', raw_data.get('html_url', f"https://github.com/{owner}/{repo}/actions"))
                     
                     # Safely get run attributes with error handling
                     run_data = {
@@ -421,18 +449,29 @@ async def get_workflow_runs(owner: str, repo: str, workflow_id: str, per_page: i
                     except Exception as e:
                         logger.warning(f"Error getting head_repository for run {run_id}: {str(e)}")
 
-                    # Get commit message from the head_commit attribute or fall back to repository commits
+                    # Get commit message and author information
                     try:
                         head_commit_data = {}
                         
-                        # First try to get from head_commit attribute
-                        if hasattr(run, 'head_commit') and run.head_commit:
+                        # First try to get from raw data if available
+                        if 'head_commit' in raw_data and raw_data['head_commit']:
+                            head_commit = raw_data['head_commit']
+                            if 'id' in head_commit:
+                                head_commit_data['id'] = head_commit['id']
+                            if 'message' in head_commit:
+                                head_commit_data['message'] = head_commit['message']
+                            if 'author' in head_commit and head_commit['author']:
+                                head_commit_data['author'] = {
+                                    'name': head_commit['author'].get('name', 'Unknown'),
+                                    'email': head_commit['author'].get('email', '')
+                                }
+                        
+                        # Fall back to object attributes if raw data doesn't have what we need
+                        if not head_commit_data and hasattr(run, 'head_commit') and run.head_commit:
                             if hasattr(run.head_commit, 'sha') and run.head_commit.sha:
                                 head_commit_data["id"] = run.head_commit.sha
                             if hasattr(run.head_commit, 'message') and run.head_commit.message:
                                 head_commit_data["message"] = run.head_commit.message
-                                
-                            # Add author info if available
                             if hasattr(run.head_commit, 'author') and run.head_commit.author:
                                 author_data = {}
                                 if hasattr(run.head_commit.author, 'name') and run.head_commit.author.name:
@@ -443,57 +482,79 @@ async def get_workflow_runs(owner: str, repo: str, workflow_id: str, per_page: i
                                     head_commit_data["author"] = author_data
                         
                         # If we still don't have a commit message, try to get it from the repository commits
-                        if 'message' not in head_commit_data and hasattr(run, 'head_sha') and run.head_sha:
-                            try:
-                                commit = repo_obj.get_commit(sha=run.head_sha)
-                                if commit and commit.commit:
-                                    head_commit_data["id"] = commit.sha
-                                    head_commit_data["message"] = commit.commit.message
-                                    if commit.commit.author:
-                                        author_data = {}
-                                        if commit.commit.author.name:
-                                            author_data["name"] = commit.commit.author.name
-                                        if commit.commit.author.email:
-                                            author_data["email"] = commit.commit.author.email
-                                        if author_data:
-                                            head_commit_data["author"] = author_data
-                            except Exception as commit_error:
-                                logger.warning(f"Error getting commit details for {run.head_sha}: {str(commit_error)}")
+                        if 'message' not in head_commit_data and ('head_sha' in raw_data or hasattr(run, 'head_sha')):
+                            sha = raw_data.get('head_sha') or getattr(run, 'head_sha', None)
+                            if sha:
+                                try:
+                                    commit = repo_obj.get_commit(sha=sha)
+                                    if commit and commit.commit:
+                                        head_commit_data["id"] = commit.sha
+                                        head_commit_data["message"] = commit.commit.message
+                                        if commit.commit.author:
+                                            author_data = {}
+                                            if commit.commit.author.name:
+                                                author_data["name"] = commit.commit.author.name
+                                            if commit.commit.author.email:
+                                                author_data["email"] = commit.commit.author.email
+                                            if author_data:
+                                                head_commit_data["author"] = author_data
+                                except Exception as commit_error:
+                                    logger.warning(f"Error getting commit details for {sha}: {str(commit_error)}")
                         
-                        # If we still don't have a message, try to get it from the run's commit message
-                        if 'message' not in head_commit_data and hasattr(run, 'commit') and run.commit and hasattr(run.commit, 'message'):
-                            head_commit_data["message"] = run.commit.message
-                        
+                        # If we have a commit message, add it to the run data
                         if head_commit_data:
                             run_data["head_commit"] = head_commit_data
                             
                     except Exception as e:
-                        logger.warning(f"Error getting commit info for run {run_id}: {str(e)}")
-                        # Add debug logging for the run object
-                        logger.debug(f"Run {run_id} attributes: {dir(run)}")
-                        if hasattr(run, '_rawData'):
-                            logger.debug(f"Run {run_id} raw data: {run._rawData}")
+                        logger.warning(f"Error processing commit info for run {run_id}: {str(e)}")
+                        logger.debug(f"Run {run_id} raw data: {raw_data}")
+                        
+                        # Add a default commit message if we couldn't get one
+                        if 'head_commit' not in run_data:
+                            run_data["head_commit"] = {
+                                "message": "No commit message available",
+                                "author": {"name": "Unknown"}
+                            }
 
                     # Add actor/author info with multiple fallbacks
                     try:
-                        # First try to get from actor
-                        actor = None
-                        if hasattr(run, 'actor') and run.actor:
-                            actor = run.actor
-                        elif hasattr(run, 'user') and run.user:  # Some API versions use 'user' instead of 'actor'
-                            actor = run.user
+                        # First try to get from raw data if available
+                        if 'actor' in raw_data and raw_data['actor']:
+                            actor_data = raw_data['actor']
+                            actor_login = actor_data.get('login') or actor_data.get('name')
+                            if actor_login:
+                                run_data["actor"] = {
+                                    "login": actor_login,
+                                    "name": actor_data.get('name', actor_login),
+                                    "avatar_url": actor_data.get('avatar_url', ''),
+                                    "html_url": f"https://github.com/{actor_login}"
+                                }
                         
-                        # If we have an actor, extract the details
-                        if actor:
+                        # Then try to get from actor attribute
+                        if 'actor' not in run_data and hasattr(run, 'actor') and run.actor:
+                            actor = run.actor
                             actor_login = getattr(actor, 'login', None) or getattr(actor, 'name', None)
                             if actor_login:
                                 run_data["actor"] = {
                                     "login": actor_login,
+                                    "name": getattr(actor, 'name', actor_login),
                                     "avatar_url": getattr(actor, 'avatar_url', ''),
                                     "html_url": f"https://github.com/{actor_login}"
                                 }
                         
-                        # If we still don't have an actor, try to get from the commit author
+                        # Try user attribute if actor not found
+                        if 'actor' not in run_data and hasattr(run, 'user') and run.user:
+                            user = run.user
+                            user_login = getattr(user, 'login', None) or getattr(user, 'name', None)
+                            if user_login:
+                                run_data["actor"] = {
+                                    "login": user_login,
+                                    "name": getattr(user, 'name', user_login),
+                                    "avatar_url": getattr(user, 'avatar_url', ''),
+                                    "html_url": f"https://github.com/{user_login}"
+                                }
+                        
+                        # Try to get from head_commit author if available
                         if 'actor' not in run_data and 'head_commit' in run_data and 'author' in run_data['head_commit']:
                             author = run_data['head_commit']['author']
                             if 'name' in author and author['name']:
@@ -503,21 +564,37 @@ async def get_workflow_runs(owner: str, repo: str, workflow_id: str, per_page: i
                                     "html_url": f"https://github.com/search?q={author['name']}&type=users"
                                 }
                         
-                        # As a last resort, try to get from the raw data
-                        if 'actor' not in run_data and hasattr(run, '_rawData'):
-                            raw_data = run._rawData
-                            if 'actor' in raw_data and raw_data['actor']:
-                                actor_data = raw_data['actor']
-                                actor_login = actor_data.get('login') or actor_data.get('name')
-                                if actor_login:
-                                    run_data["actor"] = {
-                                        "login": actor_login,
-                                        "avatar_url": actor_data.get('avatar_url', ''),
-                                        "html_url": f"https://github.com/{actor_login}"
-                                    }
+                        # If we still don't have an actor, check trigger_actor
+                        if 'actor' not in run_data and 'triggering_actor' in raw_data and raw_data['triggering_actor']:
+                            actor_data = raw_data['triggering_actor']
+                            actor_login = actor_data.get('login') or actor_data.get('name')
+                            if actor_login:
+                                run_data["actor"] = {
+                                    "login": actor_login,
+                                    "name": actor_data.get('name', actor_login),
+                                    "avatar_url": actor_data.get('avatar_url', ''),
+                                    "html_url": f"https://github.com/{actor_login}"
+                                }
+                        
+                        # Add a default actor if we couldn't find one
+                        if 'actor' not in run_data:
+                            run_data["actor"] = {
+                                "login": "unknown",
+                                "name": "Unknown",
+                                "html_url": "#"
+                            }
+                            
                     except Exception as e:
                         logger.warning(f"Error getting actor/author info for run {run_id}: {str(e)}")
-                        logger.debug(f"Run {run_id} raw actor data: {getattr(run, '_rawData', {}).get('actor')}")
+                        logger.debug(f"Run {run_id} raw actor data: {raw_data.get('actor')}")
+                        logger.debug(f"Run {run_id} raw data keys: {', '.join(raw_data.keys())}")
+                        
+                        # Ensure we always have an actor object
+                        run_data["actor"] = {
+                            "login": "error",
+                            "name": "Error loading user",
+                            "html_url": "#"
+                        }
 
                     runs_data.append(run_data)
                     
