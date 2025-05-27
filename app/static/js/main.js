@@ -15,8 +15,12 @@ function debounce(func, wait) {
 
 // Function to load the user's repositories
 async function loadMyRepos() {
+    console.log('loadMyRepos called');
     const resultsContainer = document.getElementById('searchResults');
-    if (!resultsContainer) return;
+    if (!resultsContainer) {
+        console.error('searchResults container not found');
+        return;
+    }
     
     // Show loading state
     resultsContainer.innerHTML = `
@@ -28,16 +32,28 @@ async function loadMyRepos() {
         </div>`;
     
     try {
-        // Get the user's repositories
+        console.log('Fetching repositories from /api/my-repos');
         const response = await fetch('/api/my-repos');
+        console.log('Response status:', response.status);
+        
         if (!response.ok) {
+            const errorText = await response.text();
+            console.error('API Error:', {
+                status: response.status,
+                statusText: response.statusText,
+                response: errorText
+            });
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         
         const data = await response.json();
-        const repos = data.items || [];
+        console.log('Repositories data received:', data);
+        
+        const repos = Array.isArray(data.items) ? data.items : [];
+        console.log(`Found ${repos.length} repositories`);
         
         if (repos.length === 0) {
+            console.log('No repositories found');
             resultsContainer.innerHTML = `
                 <div class="text-center p-4 text-muted">
                     <i class="bi bi-inbox" style="font-size: 2rem; opacity: 0.5;"></i>
@@ -47,115 +63,169 @@ async function loadMyRepos() {
         }
         
         // Display repositories
+        console.log('Rendering repositories');
         renderRepositories(repos, 'Your repositories');
         
     } catch (error) {
-        console.error('Error loading repositories:', error);
+        console.error('Error in loadMyRepos:', {
+            error: error,
+            message: error.message,
+            stack: error.stack
+        });
+        
         resultsContainer.innerHTML = `
             <div class="alert alert-danger" role="alert">
                 <i class="bi bi-exclamation-triangle-fill"></i>
-                Failed to load your repositories. Please try again later.
+                Failed to load repositories: ${error.message || 'Unknown error'}
+                <div class="mt-2 small">Check the console for more details.</div>
             </div>`;
     }
 }
 
 // Function to render repositories in the results container
 function renderRepositories(repos, title) {
+    console.log('renderRepositories called with:', { title, repoCount: repos?.length });
+    
     const resultsContainer = document.getElementById('searchResults');
-    if (!resultsContainer) return;
-    
-    const savedRepos = getSavedRepos();
-    
-    let html = `
-        <div class="sticky-top bg-white py-2 border-bottom">
-            <div class="d-flex justify-content-between align-items-center">
-                <h6 class="mb-0">${title}</h6>
-                <small class="text-muted">${repos.length} repositories</small>
-            </div>
-        </div>`;
-    
-    if (repos.length === 0) {
-        html += `
-            <div class="text-center p-4 text-muted">
-                <i class="bi bi-inbox" style="font-size: 2rem; opacity: 0.5;"></i>
-                <p class="mt-2 mb-0">No repositories found</p>
-            </div>`;
-    } else {
-        // Sort repositories with private ones first, then by name
-        const sortedRepos = [...repos].sort((a, b) => {
-            if (a.private !== b.private) {
-                return b.private - a.private; // Private repos first
-            }
-            return a.name.localeCompare(b.name); // Then sort by name
-        });
-
-        sortedRepos.forEach(repo => {
-            const isPrivate = repo.private || false;
-            const ownerLogin = repo.owner?.login || 'unknown';
-            const repoName = repo.name || 'unknown';
-            const isAdded = savedRepos.some(r => 
-                r.owner === ownerLogin && r.name === repoName
-            );
-            
-            // Format the updated_at date safely
-            let updatedAt = 'Unknown';
-            try {
-                updatedAt = repo.updated_at ? new Date(repo.updated_at).toLocaleDateString() : 'Unknown';
-            } catch (e) {
-                console.warn('Invalid date format for repo:', repoName, e);
-            }
-            
-            html += `
-                <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-start">
-                    <div class="flex-grow-1 me-3">
-                        <div class="d-flex align-items-center">
-                            <h6 class="mb-0">
-                                ${isPrivate ? '<i class="bi bi-lock-fill text-warning me-1" title="Private repository"></i>' : ''}
-                                <a href="${repo.html_url || '#'}" target="_blank" class="text-decoration-none text-dark">
-                                    ${repoName}
-                                </a>
-                                <small class="text-muted ms-2">${ownerLogin}</small>
-                            </h6>
-                        </div>
-                        ${repo.description ? `<p class="mb-1 small text-muted text-truncate">${repo.description}</p>` : ''}
-                        <div class="d-flex flex-wrap gap-2 align-items-center mt-1">
-                            ${repo.language ? `<span class="badge bg-light text-dark">${repo.language}</span>` : ''}
-                            <span class="badge bg-light text-dark">
-                                <i class="bi bi-star-fill text-warning"></i> ${repo.stargazers_count?.toLocaleString() || 0}
-                            </span>
-                            <span class="badge bg-light text-dark">
-                                <i class="bi bi-git"></i> ${repo.forks_count?.toLocaleString() || 0}
-                            </span>
-                            <span class="text-muted small">
-                                <i class="bi bi-clock-history"></i> Updated ${updatedAt}
-                            </span>
-                            ${repo.default_branch ? `
-                                <span class="badge bg-light text-dark" title="Default branch">
-                                    <i class="bi bi-git-branch"></i> ${repo.default_branch}
-                                </span>` : 
-                                `<span class="badge bg-light text-dark" title="Branch information not available">
-                                    <i class="bi bi-git-branch"></i> Branch: N/A
-                                </span>`
-                            }
-                        </div>
-                    </div>
-                    <button class="btn btn-sm ${isAdded ? 'btn-outline-secondary' : 'btn-primary'} add-repo" 
-                            data-owner="${ownerLogin}" 
-                            data-repo="${repoName}"
-                            ${isAdded ? 'disabled' : ''}
-                            title="${isAdded ? 'Already added' : 'Add to dashboard'}">
-                        ${isAdded ? 'Added' : 'Add'}
-                    </button>
-                </div>`;
-        });
+    if (!resultsContainer) {
+        console.error('searchResults container not found in renderRepositories');
+        return;
     }
     
-    resultsContainer.innerHTML = html;
+    let html = '';
+    let sortedRepos = [];
+    let savedRepos = [];
     
-    // Add event listeners to the Add buttons
-    document.querySelectorAll('.add-repo').forEach(button => {
-        button.addEventListener('click', handleAddRepo);
-    });
+    try {
+        savedRepos = getSavedRepos();
+        console.log('Saved repositories:', savedRepos);
+        
+        // Create header
+        html = `
+            <div class="sticky-top bg-white py-2 border-bottom">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">${title || 'Repositories'}</h6>
+                    <small class="text-muted">${Array.isArray(repos) ? repos.length : 0} repositories</small>
+                </div>
+            </div>`;
+        
+        // Handle empty or invalid repos array
+        if (!Array.isArray(repos) || repos.length === 0) {
+            console.log('No repositories to render');
+            html += `
+                <div class="text-center p-4 text-muted">
+                    <i class="bi bi-inbox" style="font-size: 2rem; opacity: 0.5;"></i>
+                    <p class="mt-2 mb-0">No repositories found</p>
+                </div>`;
+            
+            resultsContainer.innerHTML = html;
+            return;
+        }
+        
+        // Sort repositories with private ones first, then by name
+        sortedRepos = [...repos].sort((a, b) => {
+            try {
+                const aPrivate = a.private === true ? 1 : 0;
+                const bPrivate = b.private === true ? 1 : 0;
+                if (aPrivate !== bPrivate) {
+                    return bPrivate - aPrivate; // Private repos first
+                }
+                return (a.name || '').localeCompare(b.name || ''); // Then sort by name
+            } catch (error) {
+                console.error('Error sorting repositories:', error);
+                return 0;
+            }
+        });
+
+        // Generate HTML for each repository
+        sortedRepos.forEach(repo => {
+            try {
+                const isPrivate = repo.private === true;
+                const ownerLogin = (repo.owner?.login || 'unknown').toString();
+                const repoName = (repo.name || 'unknown').toString();
+                const isAdded = savedRepos.some(r => 
+                    r.owner === ownerLogin && r.name === repoName
+                );
+                
+                // Format the updated_at date safely
+                let updatedAt = 'Unknown';
+                try {
+                    updatedAt = repo.updated_at ? new Date(repo.updated_at).toLocaleDateString() : 'Unknown';
+                } catch (e) {
+                    console.warn('Invalid date format for repo:', repoName, e);
+                }
+                
+                // Generate repository card HTML
+                html += `
+                    <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1 me-3">
+                            <div class="d-flex align-items-center">
+                                <h6 class="mb-0">
+                                    ${isPrivate ? '<i class="bi bi-lock-fill text-warning me-1" title="Private repository"></i>' : ''}
+                                    <a href="${repo.html_url || '#'}" target="_blank" class="text-decoration-none text-dark">
+                                        ${repoName}
+                                    </a>
+                                    <small class="text-muted ms-2">${ownerLogin}</small>
+                                </h6>
+                            </div>
+                            ${repo.description ? `<p class="mb-1 small text-muted text-truncate">${repo.description}</p>` : ''}
+                            <div class="d-flex flex-wrap gap-2 align-items-center mt-1">
+                                ${repo.language ? `<span class="badge bg-light text-dark">${repo.language}</span>` : ''}
+                                <span class="badge bg-light text-dark">
+                                    <i class="bi bi-star-fill text-warning"></i> ${repo.stargazers_count?.toLocaleString() || 0}
+                                </span>
+                                <span class="badge bg-light text-dark">
+                                    <i class="bi bi-git"></i> ${repo.forks_count?.toLocaleString() || 0}
+                                </span>
+                                <span class="text-muted small">
+                                    <i class="bi bi-clock-history"></i> Updated ${updatedAt}
+                                </span>
+                                ${repo.default_branch ? `
+                                    <span class="badge bg-light text-dark" title="Default branch">
+                                        <i class="bi bi-git-branch"></i> ${repo.default_branch}
+                                    </span>` : 
+                                    `<span class="badge bg-light text-dark" title="Branch information not available">
+                                        <i class="bi bi-git-branch"></i> Branch: N/A
+                                    </span>`
+                                }
+                            </div>
+                        </div>
+                        <button class="btn btn-sm ${isAdded ? 'btn-outline-secondary' : 'btn-primary'} add-repo" 
+                                data-owner="${ownerLogin}" 
+                                data-repo="${repoName}"
+                                ${isAdded ? 'disabled' : ''}
+                                title="${isAdded ? 'Already added' : 'Add to dashboard'}">
+                            ${isAdded ? 'Added' : 'Add'}
+                        </button>
+                    </div>`;
+            } catch (error) {
+                console.error('Error rendering repository:', { repo, error });
+                // Continue with next repository even if one fails
+            }
+        });
+        
+        // Update the DOM
+        resultsContainer.innerHTML = html;
+        
+        // Add event listeners to the Add buttons
+        document.querySelectorAll('.add-repo').forEach(button => {
+            try {
+                button.addEventListener('click', handleAddRepo);
+            } catch (error) {
+                console.error('Error adding event listener:', error);
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error in renderRepositories:', error);
+        // Show error message to user
+        resultsContainer.innerHTML = `
+            <div class="alert alert-danger" role="alert">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                Failed to load repositories: ${error.message || 'Unknown error'}
+                <div class="mt-2 small">Check the console for more details.</div>
+            </div>`;
+    }
 }
 
 // Configuration
@@ -440,14 +510,41 @@ async function loadWorkflows(owner, repo, container) {
         }
         
         // Fetch workflows for this repository
-        const response = await fetch(`/api/workflows/${owner}/${repo}`);
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`HTTP error! status: ${response.status}, response: ${errorText}`);
-        }
+        const apiUrl = `/api/workflows/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+        console.log(`Fetching workflows from: ${apiUrl}`);
         
-        const data = await response.json();
-        const workflows = data.workflows || [];
+        let response;
+        try {
+            response = await fetch(apiUrl);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`API Error (${response.status}) for ${owner}/${repo}:`, errorText);
+                
+                // Handle 404 specifically
+                if (response.status === 404) {
+                    throw new Error(`Repository not found or access denied: ${owner}/${repo}`);
+                }
+                
+                throw new Error(`HTTP error! status: ${response.status}, response: ${errorText}`);
+            }
+            
+            const data = await response.json();
+            console.log(`Workflows data received for ${owner}/${repo}:`, data);
+            return data.workflows || [];
+            
+        } catch (error) {
+            console.error(`Error fetching workflows for ${owner}/${repo}:`, error);
+            // Show user-friendly error
+            if (workflowContainer) {
+                workflowContainer.innerHTML = `
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        Failed to load workflows: ${error.message}
+                    </div>`;
+            }
+            return [];
+        }
         
         // Get the workflow container again to ensure we have the latest reference
         workflowContainer = document.getElementById(workflowContainerId);
@@ -927,10 +1024,25 @@ async function handleRepoSearch(event) {
         
         resultsContainer.innerHTML = html;
         
-        // Add event listeners to the Add buttons
-        document.querySelectorAll('.add-repo').forEach(button => {
-            button.addEventListener('click', handleAddRepo);
-        });
+        try {
+            // Add event listeners to the Add buttons
+            document.querySelectorAll('.add-repo').forEach(button => {
+                button.addEventListener('click', handleAddRepo);
+            });
+        } catch (error) {
+            console.error('Error rendering repositories:', {
+                error,
+                message: error.message,
+                stack: error.stack
+            });
+            
+            resultsContainer.innerHTML = `
+                <div class="alert alert-danger" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    Failed to render repositories: ${error.message || 'Unknown error'}
+                    <div class="mt-2 small">Check the console for more details.</div>
+                </div>`;
+        }
         
     } catch (error) {
         console.error('Error searching repositories:', error);
