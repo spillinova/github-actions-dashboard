@@ -499,13 +499,10 @@ async function loadWorkflows(owner, repo, container) {
             repoCard.className = 'card mb-4';
             repoCard.id = repoCardId;
             
-            // Set up the card content
+            // Set up the card content without a spinner in the header
             repoCard.innerHTML = `
-                <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="card-header">
                     <h5 class="mb-0">${owner}/${repo}</h5>
-                    <div class="spinner-border spinner-border-sm" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
                 </div>
                 <div class="card-body">
                     <div id="${workflowContainerId}" class="workflow-list">
@@ -556,9 +553,6 @@ async function loadWorkflows(owner, repo, container) {
         
         if (workflows.length === 0) {
             workflowContainer.innerHTML = '<p class="text-muted">No workflows found for this repository.</p>';
-            // Remove spinner
-            const spinner = repoCard.querySelector('.spinner');
-            if (spinner) spinner.remove();
             return;
         }
         
@@ -575,10 +569,6 @@ async function loadWorkflows(owner, repo, container) {
                 continue;
             }
         }
-        
-        // Remove spinner once loaded
-        const spinner = repoCard.querySelector('.spinner');
-        if (spinner) spinner.remove();
     } catch (error) {
         console.error(`Error loading workflows for ${owner}/${repo}:`, error);
         const workflowList = document.getElementById(`workflows-${owner}-${repo}`);
