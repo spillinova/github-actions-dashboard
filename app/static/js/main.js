@@ -454,10 +454,13 @@ async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container
                 <span class="workflow-status ${status}">${status || 'in progress'}</span>
             </div>
             <div class="workflow-details">
-                <div>Branch: ${latestRun.head_branch || 'main'}</div>
+                ${latestRun.head_branch ? 
+                    `<div>Branch: ${latestRun.head_branch}</div>` : 
+                    `<div class="text-muted">Branch: Not specified</div>`
+                }
                 <div>Commit: ${latestRun.head_commit?.message?.split('\n')[0] || 'N/A'}</div>
                 <div>Run by: ${latestRun.actor?.login || 'N/A'}</div>
-                <div>Last run: ${formatDate(latestRun.created_at)}</div>
+                <div>Last run: ${latestRun.created_at ? formatDate(latestRun.created_at) : 'N/A'}</div>
             </div>`;
         
         container.appendChild(workflowElement);
