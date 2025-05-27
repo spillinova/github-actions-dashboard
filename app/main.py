@@ -148,6 +148,9 @@ async def list_my_repos(q: str = None):
                 owner_login = getattr(owner, 'login', 'unknown')
                 owner_avatar = getattr(owner, 'avatar_url', '')
                 
+                # Get the default branch safely
+                default_branch = getattr(repo, 'default_branch', 'main')
+                
                 # Add repo to processed repos
                 processed_repos.append({
                     "id": getattr(repo, 'id', 0),
@@ -164,7 +167,8 @@ async def list_my_repos(q: str = None):
                     "forks_count": getattr(repo, 'forks_count', 0),
                     "language": getattr(repo, 'language', None),
                     "updated_at": getattr(repo, 'updated_at', '').isoformat() if hasattr(repo, 'updated_at') else '',
-                    "private": repo_private
+                    "private": repo_private,
+                    "default_branch": default_branch
                 })
                 
                 logger.info(f"Found repo: {owner_login}/{repo_name} (private: {repo_private})")

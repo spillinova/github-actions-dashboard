@@ -129,6 +129,9 @@ function renderRepositories(repos, title) {
                             <span class="text-muted small">
                                 <i class="bi bi-clock-history"></i> Updated ${updatedAt}
                             </span>
+                            <span class="badge bg-light text-dark" title="Default branch">
+                                <i class="bi bi-git-branch"></i> ${repo.default_branch || 'main'}
+                            </span>
                         </div>
                     </div>
                     <button class="btn btn-sm ${isAdded ? 'btn-outline-secondary' : 'btn-primary'} add-repo" 
@@ -220,14 +223,20 @@ function getSavedRepos() {
 function updateReposList(repos) {
     const repoList = document.getElementById('repoList');
     const noReposMessage = document.getElementById('noReposMessage');
+    const container = document.getElementById('repo-container');
     
     if (!repoList) return;
+    
+    // Store the currently selected repo if any
+    const activeItem = repoList.querySelector('.active');
+    const activeRepoId = activeItem ? activeItem.dataset.repoId : null;
     
     // Clear the current list
     repoList.innerHTML = '';
     
     if (repos.length === 0) {
         noReposMessage.style.display = 'block';
+        if (container) container.innerHTML = '';
         return;
     }
     
@@ -235,8 +244,14 @@ function updateReposList(repos) {
     
     // Add each repository to the list
     repos.forEach((repo, index) => {
+        const repoId = `${repo.owner}_${repo.name}`.replace(/[^a-zA-Z0-9-_]/g, '_');
+        const isActive = activeRepoId === repoId || (index === 0 && !activeRepoId);
+        
         const repoItem = document.createElement('button');
-        repoItem.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+        repoItem.className = `list-group-item list-group-item-action d-flex justify-content-between align-items-center ${isActive ? 'active' : ''}`;
+        repoItem.dataset.repoId = repoId;
+        repoItem.dataset.owner = repo.owner;
+        repoItem.dataset.repo = repo.name;
         repoItem.innerHTML = `
             <span>${repo.full_name}</span>
             <button class="btn btn-sm btn-outline-danger remove-repo" data-owner="${repo.owner}" data-repo="${repo.name}">
@@ -245,9 +260,12 @@ function updateReposList(repos) {
         `;
         
         // Add click handler to load workflows
-        repoItem.addEventListener('click', async (e) => {
+        const clickHandler = async (e) => {
             // Don't navigate if the remove button was clicked
             if (e.target.closest('.remove-repo')) return;
+            
+            // Skip if already active
+            if (repoItem.classList.contains('active')) return;
             
             // Update active state
             document.querySelectorAll('#repoList .list-group-item').forEach(item => {
@@ -256,15 +274,19 @@ function updateReposList(repos) {
             repoItem.classList.add('active');
             
             // Load workflows
-            const container = document.getElementById('repo-container');
             if (container) {
                 container.innerHTML = '';
                 await loadWorkflows(repo.owner, repo.name, container);
             }
-        });
+        };
+        
+        // Remove any existing event listeners to prevent duplicates
+        repoItem.replaceWith(repoItem.cloneNode(true));
+        const newRepoItem = repoList.lastElementChild;
+        newRepoItem.addEventListener('click', clickHandler);
         
         // Add remove button handler
-        const removeBtn = repoItem.querySelector('.remove-repo');
+        const removeBtn = newRepoItem.querySelector('.remove-repo');
         if (removeBtn) {
             removeBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -272,11 +294,10 @@ function updateReposList(repos) {
             });
         }
         
-        repoList.appendChild(repoItem);
-        
-        // Select the first repository by default
-        if (index === 0) {
-            repoItem.click();
+        // If this is the active repo, load its workflows
+        if (isActive && container) {
+            container.innerHTML = '';
+            loadWorkflows(repo.owner, repo.name, container);
         }
     });
 }
