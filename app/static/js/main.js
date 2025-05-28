@@ -458,6 +458,54 @@ function removeRepository(owner, repoName) {
     }
 }
 
+// Function to refresh all workflows for saved repositories
+async function refreshAllWorkflows(forceRefresh = false, background = false) {
+    console.log('Refreshing all workflows...', { forceRefresh, background });
+    const savedRepos = getSavedRepos();
+    const container = document.getElementById('repo-container');
+    
+    if (!container) {
+        console.error('Main container not found');
+        return;
+    }
+    
+    // Only update UI if not a background refresh
+    if (!background) {
+        // Clear the container and show loading state
+        container.innerHTML = `
+            <div class="text-center p-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Refreshing workflows...</p>
+            </div>`;
+    }
+    
+    try {
+        // Load workflows for each saved repository
+        for (const repo of savedRepos) {
+            try {
+                await loadWorkflows(repo.owner, repo.name, container);
+                // Add a small delay between repository refreshes to avoid rate limiting
+                await new Promise(resolve => setTimeout(resolve, 500));
+            } catch (error) {
+                console.error(`Error refreshing workflows for ${repo.owner}/${repo.name}:`, error);
+                // Continue with next repository even if one fails
+                continue;
+            }
+        }
+    } catch (error) {
+        console.error('Error in refreshAllWorkflows:', error);
+        if (!background) {
+            container.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    Failed to refresh workflows: ${error.message}
+                </div>`;
+        }
+    }
+}
+
 async function loadWorkflows(owner, repo, container) {
     try {
         console.log(`Loading workflows for ${owner}/${repo}`);
