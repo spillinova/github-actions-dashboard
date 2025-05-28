@@ -257,13 +257,19 @@ function cancelPendingRequests(workflowId) {
     if (request) {
         const { controller, timestamp } = request;
         try {
-            if (controller && !controller.signal.aborted && Date.now() - timestamp < 10000) {
+            if (controller && !controller.signal.aborted) {
+                console.log(`Cancelling previous request for workflow ${workflowId}`);
                 controller.abort();
             }
         } catch (e) {
-            console.error('Error aborting controller:', e);
+            // Ignore errors when aborting
+            console.debug('Error while aborting request:', e);
         } finally {
-            activeRequests.delete(workflowId);
+            // Only remove if this is the same request we're trying to cancel
+            const currentRequest = activeRequests.get(workflowId);
+            if (currentRequest && currentRequest.timestamp === timestamp) {
+                activeRequests.delete(workflowId);
+            }
         }
     }
 }
@@ -661,13 +667,18 @@ async function loadWorkflows(owner, repo, container) {
     }
 }
 
+// Request tracking and configuration
+const REQUEST_TIMEOUT = 30000; // 30 seconds
+const activeRequests = new Map(); // Tracks active requests to prevent duplicates
+
 async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container) {
     if (!container || !container.isConnected) {
         console.log(`Container not available for ${owner}/${repo}/${workflowId}`);
         return;
     }
 
-    console.log(`Loading runs for workflow: ${workflowName} (${workflowId})`);
+    const requestKey = `${owner}/${repo}/${workflowId}`;
+    console.log(`[${new Date().toISOString()}] Loading runs for workflow: ${workflowName} (${workflowId})`);
     
     // Show loading state
     const runsContainer = container.querySelector('.workflow-runs');
@@ -686,14 +697,29 @@ async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container
     let controller;
     
     try {
-        // Cancel any pending requests for this workflow
-        cancelPendingRequests(workflowId);
-        
         // Create a new AbortController for this request
         controller = new AbortController();
+        const requestId = `${workflowId}-${Date.now()}`; // Unique ID for this specific request
+        
+        // Store the active request
         activeRequests.set(workflowId, { 
             controller, 
-            timestamp: Date.now() 
+            timestamp: Date.now(),
+            id: requestId
+        });
+        
+        // Set a timeout to clean up the request
+        const timeoutId = setTimeout(() => {
+            const currentRequest = activeRequests.get(workflowId);
+            if (currentRequest && currentRequest.id === requestId) {
+                console.log(`Request timeout for workflow ${workflowId}`);
+                activeRequests.delete(workflowId);
+            }
+        }, REQUEST_TIMEOUT);
+        
+        // Clean up the timeout when the request completes
+        controller.signal.addEventListener('abort', () => {
+            clearTimeout(timeoutId);
         });
         
         // Only fetch the most recent run with cache control
@@ -832,9 +858,14 @@ async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container
         console.error(`Error in loadWorkflowRuns for ${workflowName}:`, error);
         updateWorkflowErrorUI(workflowId, workflowName, container, `Failed to load workflow runs: ${error.message}`);
     } finally {
-        // Clean up the controller
+        // Clean up the controller if it's still active
         if (controller) {
-            activeRequests.delete(workflowId);
+            const currentRequest = activeRequests.get(workflowId);
+            // Only delete if this is the same request we were working with
+            if (currentRequest && currentRequest.controller === controller) {
+                console.log(`Cleaning up request for workflow ${workflowId}`);
+                activeRequests.delete(workflowId);
+            }
         }
     }
 }
