@@ -542,7 +542,10 @@ async function loadWorkflows(owner, repo, container) {
             
             const data = await response.json();
             console.log(`Workflows data received for ${owner}/${repo}:`, data);
-            return data.workflows || [];
+            const workflows = data.workflows || [];
+            
+            // Update the workflow container with the workflows data
+            updateWorkflowContainer(workflowContainerId, owner, repo, workflows);
             
         } catch (error) {
             console.error(`Error fetching workflows for ${owner}/${repo}:`, error);
@@ -557,31 +560,7 @@ async function loadWorkflows(owner, repo, container) {
             return [];
         }
         
-        // Get the workflow container again to ensure we have the latest reference
-        workflowContainer = document.getElementById(workflowContainerId);
-        if (!workflowContainer) {
-            console.error(`Workflow list container not found for ${owner}/${repo} after fetch`);
-            return;
-        }
-        
-        if (workflows.length === 0) {
-            workflowContainer.innerHTML = '<p class="text-muted">No workflows found for this repository.</p>';
-            return;
-        }
-        
-        // Clear existing content but keep the container
-        workflowContainer.innerHTML = '';
-        
-        // Load workflow runs for each workflow
-        for (const workflow of workflows) {
-            try {
-                await loadWorkflowRuns(owner, repo, workflow.id, workflow.name, workflowContainer);
-            } catch (error) {
-                console.error(`Error loading runs for workflow ${workflow.name}:`, error);
-                // Continue with next workflow even if one fails
-                continue;
-            }
-        }
+        // The updateWorkflowContainer function now handles the UI updates
     } catch (error) {
         console.error(`Error loading workflows for ${owner}/${repo}:`, error);
         const workflowList = document.getElementById(`workflows-${owner}-${repo}`);
@@ -756,6 +735,53 @@ function updateWorkflowErrorUI(workflowId, workflowName, container, errorMessage
             <i class="bi bi-exclamation-triangle-fill me-1"></i>
             ${errorMessage}
         </div>`;
+}
+
+// Update the workflow container with the workflows data
+function updateWorkflowContainer(containerId, owner, repo, workflows) {
+    const workflowContainer = document.getElementById(containerId);
+    if (!workflowContainer) {
+        console.error(`Workflow container ${containerId} not found`);
+        return;
+    }
+    
+    if (workflows.length === 0) {
+        workflowContainer.innerHTML = '<p class="text-muted">No workflows found for this repository.</p>';
+        return;
+    }
+    
+    // Clear existing content but keep the container
+    workflowContainer.innerHTML = '';
+    
+    // Create a list group for the workflows
+    const listGroup = document.createElement('div');
+    listGroup.className = 'list-group list-group-flush';
+    
+    // Add each workflow to the list
+    workflows.forEach(workflow => {
+        if (!workflow || !workflow.id || !workflow.name) return;
+        
+        const workflowItem = document.createElement('div');
+        workflowItem.className = 'list-group-item';
+        workflowItem.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h6 class="mb-1">${workflow.name || 'Unnamed Workflow'}</h6>
+                    <small class="text-muted">ID: ${workflow.id}</small>
+                </div>
+                <div class="spinner-border spinner-border-sm text-secondary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        `;
+        
+        listGroup.appendChild(workflowItem);
+        
+        // Load workflow runs for this workflow
+        loadWorkflowRuns(owner, repo, workflow.id, workflow.name, workflowItem);
+    });
+    
+    workflowContainer.appendChild(listGroup);
 }
 
 // Helper function to get badge class based on status
