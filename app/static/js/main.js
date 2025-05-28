@@ -632,13 +632,16 @@ async function loadWorkflows(owner, repo, container) {
                 throw new Error(`Failed to load workflows: ${response.status} ${response.statusText}`);
             }
             
-            const workflows = await response.json();
+            const data = await response.json();
+            
+            // Ensure workflows is an array
+            const workflows = Array.isArray(data) ? data : (data.workflows || []);
             
             // Clear the loading state
             workflowContainer.innerHTML = '';
             
             // Process and display workflows
-            if (!workflows || workflows.length === 0) {
+            if (workflows.length === 0) {
                 workflowContainer.innerHTML = '<p class="text-muted">No workflows found for this repository.</p>';
                 return;
             }
