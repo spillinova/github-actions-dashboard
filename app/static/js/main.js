@@ -687,17 +687,42 @@ async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container
     const requestKey = `${owner}/${repo}/${workflowId}`;
     console.log(`[${new Date().toISOString()}] Loading runs for workflow: ${workflowName} (${workflowId})`);
     
-    // Show loading state
-    const runsContainer = container.querySelector('.workflow-runs');
-    if (runsContainer) {
-        runsContainer.innerHTML = `
-            <div class="list-group-item text-center text-muted py-3">
-                <div class="spinner-border spinner-border-sm" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-                <span class="ms-2">Loading workflow runs...</span>
-            </div>`;
+    // Create a workflow card if it doesn't exist
+    let workflowCard = container.querySelector(`.workflow-card[data-workflow-id="${workflowId}"]`);
+    let runsContainer;
+    
+    if (!workflowCard) {
+        // Create the workflow card
+        workflowCard = document.createElement('div');
+        workflowCard.className = 'workflow-card card mb-3';
+        workflowCard.setAttribute('data-workflow-id', workflowId);
+        workflowCard.innerHTML = `
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">${workflowName}</h6>
+                <span class="badge bg-secondary">#${workflowId}</span>
+            </div>
+            <div class="workflow-runs-container"></div>`;
+        
+        // Add the card to the container
+        container.appendChild(workflowCard);
     }
+    
+    // Get or create the runs container
+    runsContainer = workflowCard.querySelector('.workflow-runs-container');
+    if (!runsContainer) {
+        runsContainer = document.createElement('div');
+        runsContainer.className = 'workflow-runs-container list-group list-group-flush';
+        workflowCard.appendChild(runsContainer);
+    }
+    
+    // Show loading state
+    runsContainer.innerHTML = `
+        <div class="list-group-item text-center text-muted py-3">
+            <div class="spinner-border spinner-border-sm" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <span class="ms-2">Loading workflow runs...</span>
+        </div>`;
     
     let response;
     let data;
@@ -842,7 +867,14 @@ async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container
         
         // Update the runs container
         if (runsContainer) {
-            runsContainer.innerHTML = runsHtml;
+            // Create a new container for the runs
+            const newRunsContainer = document.createElement('div');
+            newRunsContainer.className = 'workflow-runs list-group list-group-flush';
+            newRunsContainer.innerHTML = runsHtml;
+            
+            // Replace the old runs container with the new one
+            runsContainer.parentNode.replaceChild(newRunsContainer, runsContainer);
+            runsContainer = newRunsContainer;
             
             // Add click handlers for each run item
             runsContainer.querySelectorAll('.list-group-item').forEach(item => {
