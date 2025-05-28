@@ -702,7 +702,8 @@ async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container
                 const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${run.id}`;
                 const commitMessage = run.head_commit?.message || 'No commit message';
                 const shortSha = run.head_sha ? run.head_sha.substring(0, 7) : 'N/A';
-                const branch = run.head_branch || 'N/A';
+                // Try multiple possible fields for branch name
+                const branch = run.head_branch || run.head_ref || run.head_repo?.default_branch || 'N/A';
                 const actor = run.actor?.login || run.triggering_actor?.login || 'unknown';
                 
                 // Format duration
