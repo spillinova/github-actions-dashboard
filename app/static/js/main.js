@@ -1200,13 +1200,20 @@ async function handleAddRepo(event) {
             Successfully added ${owner}/${repoName} to your dashboard.
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         `;
-        document.querySelector('main').prepend(successAlert);
         
-        // Auto-hide the alert after 5 seconds
-        setTimeout(() => {
-            const alert = bootstrap.Alert.getOrCreateInstance(successAlert);
-            alert.close();
-        }, 5000);
+        // Find a suitable container for the alert
+        const mainContent = document.querySelector('main, .container, .container-fluid, body');
+        if (mainContent) {
+            mainContent.prepend(successAlert);
+            
+            // Auto-hide the alert after 5 seconds
+            setTimeout(() => {
+                const alert = bootstrap.Alert.getOrCreateInstance(successAlert);
+                alert.close();
+            }, 5000);
+        } else {
+            console.log('Successfully added repository, but could not find a suitable container for the success message');
+        }
         
     } catch (error) {
         console.error('Error adding repository:', error);
