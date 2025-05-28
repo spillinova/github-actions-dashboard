@@ -246,6 +246,20 @@ const POLLING_INTERVAL = 60000; // 1 minute
 let pollingIntervalId = null;
 let isPolling = false;
 
+// Track active requests to prevent duplicates
+const activeRequests = new Map();
+
+// Function to cancel pending requests for a workflow
+function cancelPendingRequests(workflowId) {
+    if (activeRequests.has(workflowId)) {
+        const { controller, timestamp } = activeRequests.get(workflowId);
+        if (Date.now() - timestamp < 10000) { // Only cancel if request is recent (less than 10s old)
+            controller.abort();
+        }
+        activeRequests.delete(workflowId);
+    }
+}
+
 // Initialize polling
 function startPolling() {
     // Clear any existing interval
@@ -482,16 +496,20 @@ async function refreshAllWorkflows(forceRefresh = false, background = false) {
     }
     
     try {
-        // Load workflows for each saved repository
-        for (const repo of savedRepos) {
-            try {
-                await loadWorkflows(repo.owner, repo.name, container);
-                // Add a small delay between repository refreshes to avoid rate limiting
-                await new Promise(resolve => setTimeout(resolve, 500));
-            } catch (error) {
-                console.error(`Error refreshing workflows for ${repo.owner}/${repo.name}:`, error);
-                // Continue with next repository even if one fails
-                continue;
+        // Process repositories in parallel with a concurrency limit
+        const BATCH_SIZE = 3; // Process 3 repositories at a time
+        for (let i = 0; i < savedRepos.length; i += BATCH_SIZE) {
+            const batch = savedRepos.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(repo => 
+                loadWorkflows(repo.owner, repo.name, container)
+                    .catch(error => {
+                        console.error(`Error refreshing workflows for ${repo.owner}/${repo.name}:`, error);
+                        return null; // Continue with next repository even if one fails
+                    })
+            ));
+            // Small delay between batches to avoid rate limiting
+            if (i + BATCH_SIZE < savedRepos.length) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
             }
         }
     } catch (error) {
@@ -660,8 +678,29 @@ async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container
         let data;
         
         try {
-            // Only fetch the most recent run
-            response = await fetch(`/api/runs/${owner}/${repo}/${workflowId}?per_page=1`);
+            // Cancel any pending requests for this workflow
+            cancelPendingRequests(workflowId);
+            
+            // Create a new AbortController for this request
+            const controller = new AbortController();
+            const requestKey = `${owner}/${repo}/${workflowId}`;
+            activeRequests.set(workflowId, { 
+                controller, 
+                timestamp: Date.now() 
+            });
+            
+            // Only fetch the most recent run with cache control
+            response = await fetch(`/api/runs/${owner}/${repo}/${workflowId}?per_page=1&t=${Date.now()}`, {
+                signal: controller.signal,
+                headers: {
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0'
+                }
+            });
+            
+            // Remove from active requests once completed
+            activeRequests.delete(workflowId);
             
             if (!response.ok) {
                 const errorText = await response.text();
