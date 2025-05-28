@@ -508,44 +508,53 @@ async function refreshAllWorkflows(forceRefresh = false, background = false) {
 
 async function loadWorkflows(owner, repo, container) {
     try {
-        console.log(`Loading workflows for ${owner}/${repo}`);
-        
-        // If no container is provided, try to find the main container
         if (!container) {
-            container = document.getElementById('repo-container');
-            if (!container) {
-                console.error('Main container not found');
-                return;
-            }
+            console.error('No container provided for workflows');
+            return;
         }
-        
-        // Create a unique ID for this repository's workflow container
-        const workflowContainerId = `workflows-${owner}-${repo}`;
-        const repoCardId = `repo-${owner}-${repo}`;
-        
-        // Check if we already have a workflow container for this repo
+
+        // Show loading state
+        container.innerHTML = `
+            <div class="d-flex justify-content-center align-items-center" style="min-height: 200px;">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <span class="ms-2">Loading workflows for ${owner}/${repo}...</span>
+            </div>`;
+
+        // Check if we already have a card for this repo
+        const repoId = `${owner}_${repo}`.replace(/[^a-zA-Z0-9-_]/g, '_');
+        const workflowContainerId = `workflows-${repoId}`;
         let workflowContainer = document.getElementById(workflowContainerId);
-        let repoCard = document.getElementById(repoCardId);
-        
-        // Create a new card if it doesn't exist
+        let repoCard = document.getElementById(`repo-${repoId}`);
+
+        // If no card exists, create one
         if (!repoCard) {
             repoCard = document.createElement('div');
-            repoCard.className = 'card mb-4';
-            repoCard.id = repoCardId;
-            
-            // Set up the card content without a spinner in the header
+            repoCard.className = 'card mb-3';
+            repoCard.id = `repo-${repoId}`;
             repoCard.innerHTML = `
-                <div class="card-header">
-                    <h5 class="mb-0">${owner}/${repo}</h5>
-                </div>
-                <div class="card-body">
-                    <div id="${workflowContainerId}" class="workflow-list">
-                        Loading workflows...
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <a href="https://github.com/${owner}/${repo}" target="_blank" class="text-decoration-none">
+                            ${owner}/${repo}
+                        </a>
+                    </h5>
+                    <div>
+                        <button class="btn btn-sm btn-outline-secondary me-2" onclick="refreshWorkflows('${owner}', '${repo}')">
+                            <i class="bi-arrow-clockwise"></i> Refresh
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="removeRepository('${owner}', '${repo}')">
+                            <i class="bi-trash"></i> Remove
+                        </button>
                     </div>
                 </div>
-            `;
+                <div class="card-body">
+                    <div id="${workflowContainerId}" class="workflow-list"></div>
+                </div>`;
             
-            // Add the card to the container
+            // Clear the container and add the new card
+            container.innerHTML = '';
             container.appendChild(repoCard);
             workflowContainer = document.getElementById(workflowContainerId);
             
@@ -595,6 +604,11 @@ async function loadWorkflows(owner, repo, container) {
             // Update the workflow container with the workflows data
             updateWorkflowContainer(workflowContainerId, owner, repo, workflows);
             
+            // Load workflow runs for each workflow
+            workflows.forEach(workflow => {
+                loadWorkflowRuns(owner, repo, workflow.id, workflow.name, workflowContainer);
+            });
+            
         } catch (error) {
             console.error(`Error fetching workflows for ${owner}/${repo}:`, error);
             // Show user-friendly error
@@ -607,13 +621,16 @@ async function loadWorkflows(owner, repo, container) {
             }
             return [];
         }
-        
-        // The updateWorkflowContainer function now handles the UI updates
     } catch (error) {
         console.error(`Error loading workflows for ${owner}/${repo}:`, error);
         const workflowList = document.getElementById(`workflows-${owner}-${repo}`);
         if (workflowList) {
-            workflowList.innerHTML = '<p class="error">Failed to load workflows. Please try again later.</p>';
+            workflowList.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    Failed to load workflows. Please try again later.
+                    ${error.message ? `<div class="small mt-2">${error.message}</div>` : ''}
+                </div>`;
         }
     }
 }
@@ -626,104 +643,139 @@ async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container
         }
 
         console.log(`Loading runs for workflow: ${workflowName} (${workflowId})`);
+        
+        // Show loading state
+        const runsContainer = container.querySelector('.workflow-runs');
+        if (runsContainer) {
+            runsContainer.innerHTML = `
+                <div class="list-group-item text-center text-muted py-3">
+                    <div class="spinner-border spinner-border-sm" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <span class="ms-2">Loading workflow runs...</span>
+                </div>`;
+        }
+        
         let response;
         let data;
         
         try {
-            response = await fetch(`/api/runs/${owner}/${repo}/${workflowId}?per_page=3`);
+            response = await fetch(`/api/runs/${owner}/${repo}/${workflowId}?per_page=5`);
             
             if (!response.ok) {
                 const errorText = await response.text();
                 console.error(`HTTP error! status: ${response.status}, response:`, errorText);
-                throw new Error(`HTTP error! status: ${response.status}`);
+                throw new Error(`Failed to load runs: ${response.status} ${response.statusText}`);
             }
             
             data = await response.json();
-        } catch (error) {
-            console.error(`Error fetching runs for ${workflowName}:`, error);
-            // If we can't get the runs, show an error but don't break the UI
-            updateWorkflowErrorUI(workflowId, workflowName, container, 'Failed to load workflow runs');
-            return;
-        }
-        
-        console.log(`Received data for ${workflowName}:`, data);
-        
-        const runs = Array.isArray(data.runs) ? data.runs : [];
-        console.log(`Found ${runs.length} runs for ${workflowName}`);
-        
-        // Get or create workflow element
-        let workflowElement = document.getElementById(`workflow-${workflowId}`);
-        
-        if (!workflowElement) {
-            workflowElement = document.createElement('div');
-            workflowElement.className = 'workflow mb-3';
-            workflowElement.id = `workflow-${workflowId}`;
-            // Only append if we're creating a new element
-            container.appendChild(workflowElement);
-        }
-        
-        if (runs.length === 0) {
-            console.log(`No runs found for workflow: ${workflowName}`);
-            workflowElement.innerHTML = `
-                <div class="workflow-header">
-                    <span class="workflow-name">${workflowName}</span>
-                    <span class="workflow-status">No runs</span>
-                </div>`;
-            return;
-        }
-        
-        // Sort runs by creation date (newest first)
-        const sortedRuns = [...runs].sort((a, b) => {
-            const dateA = a.created_at ? new Date(a.created_at) : new Date(0);
-            const dateB = b.created_at ? new Date(b.created_at) : new Date(0);
-            return dateB - dateA;
-        });
-        
-        // Use the latest run with fallbacks for missing data
-        const latestRun = sortedRuns[0] || {};
-        const status = latestRun.conclusion || latestRun.status || 'unknown';
-        const runNumber = latestRun.run_number || '?';
-        const branch = latestRun.head_branch || 'unknown';
-        const commitMsg = latestRun.head_commit?.message || 'No commit message';
-        const commitAuthor = latestRun.head_commit?.author?.name || 'Unknown';
-        const commitDate = latestRun.head_commit?.timestamp || latestRun.created_at;
-        const runUrl = latestRun.html_url || `https://github.com/${owner}/${repo}/actions`;
-        
-        // Format the commit message (first line only)
-        const shortCommitMsg = commitMsg.split('\n')[0];
-        const formattedDate = commitDate ? formatDate(commitDate) : 'Unknown date';
-        
-        // Only update the content if it's different to avoid flickering
-        const newContent = `
-            <div class="workflow-header" data-bs-toggle="collapse" data-bs-target="#runs-${workflowId}" aria-expanded="false" aria-controls="runs-${workflowId}">
-                <span class="workflow-name">${workflowName}</span>
-                <span class="badge bg-${getStatusBadgeClass(status)}">${status}</span>
-            </div>
-            <div class="collapse show" id="runs-${workflowId}">
-                <div class="runs-list">
-                    <div class="run-item">
-                        <div class="run-header">
-                            <span class="run-status ${status}"></span>
-                            <a href="${runUrl}" target="_blank" class="run-number">#${runNumber}</a>
-                            <span class="run-branch">${branch}</span>
-                            <a href="${runUrl}" target="_blank" class="run-link ms-2" title="View run in GitHub">
-                                <i class="bi-box-arrow-up-right"></i>
-                            </a>
-                        </div>
-                        <div class="run-details">
-                            <div class="commit-message" title="${commitMsg.replace(/"/g, '&quot;')}">${shortCommitMsg}</div>
-                            <div class="commit-meta">
-                                <span class="commit-author">
-                                    <i class="bi-person-fill"></i> ${commitAuthor}
+            
+            if (!data || !Array.isArray(data.runs)) {
+                throw new Error('Invalid response format from server');
+            }
+            
+            console.log(`Received data for ${workflowName}:`, data);
+            
+            const runs = Array.isArray(data.runs) ? data.runs : [];
+            
+            if (runs.length === 0) {
+                if (runsContainer) {
+                    runsContainer.innerHTML = `
+                        <div class="list-group-item text-center py-4">
+                            <i class="bi bi-inbox fs-1 text-muted mb-2"></i>
+                            <p class="mb-0">No workflow runs found</p>
+                            <small class="text-muted">Push a commit to trigger a workflow run</small>
+                        </div>`;
+                }
+                return;
+            }
+            
+            // Sort runs by creation date (newest first)
+            runs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            
+            // Format the runs HTML
+            const runsHtml = runs.map(run => {
+                const runStatus = run.conclusion || run.status || 'unknown';
+                const statusClass = getStatusBadgeClass(runStatus);
+                const runDate = formatDate(run.created_at);
+                const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${run.id}`;
+                const commitMessage = run.head_commit?.message || 'No commit message';
+                const shortSha = run.head_sha ? run.head_sha.substring(0, 7) : 'N/A';
+                const branch = run.head_branch || 'N/A';
+                const actor = run.actor?.login || run.triggering_actor?.login || 'unknown';
+                
+                // Format duration
+                let duration = 'N/A';
+                if (run.updated_at && run.created_at) {
+                    const start = new Date(run.created_at);
+                    const end = new Date(run.updated_at);
+                    const diffMs = end - start;
+                    const diffMins = Math.floor(diffMs / 60000);
+                    const diffSecs = Math.floor((diffMs % 60000) / 1000);
+                    duration = diffMins > 0 ? `${diffMins}m ${diffSecs}s` : `${diffSecs}s`;
+                }
+                
+                return `
+                    <div class="list-group-item list-group-item-action p-3">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div class="d-flex align-items-center">
+                                <span class="badge bg-${statusClass} me-2">
+                                    <i class="bi ${runStatus === 'success' ? 'bi-check-circle' : runStatus === 'failure' ? 'bi-x-circle' : 'bi-arrow-repeat'} me-1"></i>
+                                    ${runStatus.charAt(0).toUpperCase() + runStatus.slice(1)}
                                 </span>
-                                <span class="commit-date">
-                                    <i class="bi-clock"></i> ${formattedDate}
+                                <a href="${runUrl}" target="_blank" class="text-decoration-none fw-bold me-2">
+                                    #${run.run_number}
+                                </a>
+                                <span class="badge bg-light text-dark border me-2">
+                                    <i class="bi-git me-1"></i>${branch}
+                                </span>
+                                <span class="badge bg-light text-dark border">
+                                    <i class="bi-person-fill me-1"></i>${actor}
+                                </span>
+                            </div>
+                            <small class="text-muted" title="${new Date(run.created_at).toLocaleString()}">
+                                <i class="bi-clock-history me-1"></i>${runDate}
+                            </small>
+                        </div>
+                        
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="text-truncate me-2" title="${commitMessage.replace(/"/g, '&quot;')}">
+                                <i class="bi-git me-1"></i>
+                                ${commitMessage.split('\n')[0]}
+                            </div>
+                            <div class="text-nowrap text-muted small">
+                                <span class="me-2" title="Commit SHA">
+                                    <i class="bi-hash"></i> ${shortSha}
+                                </span>
+                                <span title="Duration">
+                                    <i class="bi-stopwatch"></i> ${duration}
                                 </span>
                             </div>
                         </div>
-                    </div>
-                </div>
-            </div>`;
+                    </div>`;
+            }).join('');
+            
+            // Update the runs container
+            if (runsContainer) {
+                runsContainer.innerHTML = runsHtml;
+                
+                // Add click handlers for each run item
+                runsContainer.querySelectorAll('.list-group-item').forEach(item => {
+                    item.addEventListener('click', (e) => {
+                        // Don't navigate if the click was on a link or button
+                        if (e.target.tagName === 'A' || e.target.closest('a, button')) {
+                            return;
+                        }
+                        // Toggle active class on the clicked item
+                        item.classList.toggle('active');
+                    });
+                });
+            }
+            
+        } catch (error) {
+            console.error(`Error in loadWorkflowRuns for ${workflowName}:`, error);
+            updateWorkflowErrorUI(workflowId, workflowName, container, `Failed to load workflow runs: ${error.message}`);
+        }
             
         // Only update if content has changed
         if (workflowElement.innerHTML.trim() !== newContent.trim()) {
@@ -785,56 +837,11 @@ function updateWorkflowErrorUI(workflowId, workflowName, container, errorMessage
         </div>`;
 }
 
-// Update the workflow container with the workflows data
-function updateWorkflowContainer(containerId, owner, repo, workflows) {
-    const workflowContainer = document.getElementById(containerId);
-    if (!workflowContainer) {
-        console.error(`Workflow container ${containerId} not found`);
-        return;
-    }
-    
-    if (workflows.length === 0) {
-        workflowContainer.innerHTML = '<p class="text-muted">No workflows found for this repository.</p>';
-        return;
-    }
-    
-    // Clear existing content but keep the container
-    workflowContainer.innerHTML = '';
-    
-    // Create a list group for the workflows
-    const listGroup = document.createElement('div');
-    listGroup.className = 'list-group list-group-flush';
-    
-    // Add each workflow to the list
-    workflows.forEach(workflow => {
-        if (!workflow || !workflow.id || !workflow.name) return;
-        
-        const workflowItem = document.createElement('div');
-        workflowItem.className = 'list-group-item';
-        workflowItem.innerHTML = `
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <h6 class="mb-1">${workflow.name || 'Unnamed Workflow'}</h6>
-                    <small class="text-muted">ID: ${workflow.id}</small>
-                </div>
-                <div class="spinner-border spinner-border-sm text-secondary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-            </div>
-        `;
-        
-        listGroup.appendChild(workflowItem);
-        
-        // Load workflow runs for this workflow
-        loadWorkflowRuns(owner, repo, workflow.id, workflow.name, workflowItem);
-    });
-    
-    workflowContainer.appendChild(listGroup);
-}
-
-// Helper function to get badge class based on status
+// Helper function to get status badge class
 function getStatusBadgeClass(status) {
-    switch (status) {
+    if (!status) return 'secondary';
+    
+    switch (status.toLowerCase()) {
         case 'success':
         case 'completed':
             return 'success';
@@ -849,9 +856,115 @@ function getStatusBadgeClass(status) {
         case 'cancelled':
         case 'skipped':
             return 'secondary';
-        default:
+        case 'action_required':
             return 'info';
+        default:
+            return 'primary';
     }
+}
+
+// Update the workflow container with the workflows data
+function updateWorkflowContainer(containerId, owner, repo, workflows) {
+    const workflowContainer = document.getElementById(containerId);
+    if (!workflowContainer) {
+        console.error(`Workflow container ${containerId} not found`);
+        return;
+    }
+    
+    if (!Array.isArray(workflows) || workflows.length === 0) {
+        workflowContainer.innerHTML = `
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i>
+                No workflows found for this repository.
+            </div>`;
+        return;
+    }
+    
+    // Clear existing content but keep the container
+    workflowContainer.innerHTML = '';
+    
+    // Sort workflows by name
+    workflows.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    
+    // Add each workflow to the container
+    workflows.forEach(workflow => {
+        if (!workflow || !workflow.id) return;
+        
+        const workflowElement = document.createElement('div');
+        workflowElement.className = 'card mb-3 workflow';
+        workflowElement.id = `workflow-${workflow.id}`;
+        
+        // Create workflow card header
+        const cardHeader = document.createElement('div');
+        cardHeader.className = 'card-header d-flex justify-content-between align-items-center';
+        
+        // Workflow title with status icon
+        const titleElement = document.createElement('h6');
+        titleElement.className = 'mb-0';
+        titleElement.innerHTML = `
+            <i class="bi bi-diagram-2 me-2"></i>
+            ${workflow.name || 'Unnamed Workflow'}
+        `;
+        
+        // Action buttons
+        const actionButtons = document.createElement('div');
+        
+        // Add GitHub link if path is available
+        if (workflow.path) {
+            const githubLink = document.createElement('a');
+            githubLink.href = `https://github.com/${owner}/${repo}/actions/workflows/${workflow.path.split('/').pop()}`;
+            githubLink.target = '_blank';
+            githubLink.className = 'btn btn-sm btn-outline-secondary me-2';
+            githubLink.title = 'View on GitHub';
+            githubLink.innerHTML = '<i class="bi-box-arrow-up-right"></i>';
+            actionButtons.appendChild(githubLink);
+        }
+        
+        // Add refresh button
+        const refreshButton = document.createElement('button');
+        refreshButton.className = 'btn btn-sm btn-outline-primary';
+        refreshButton.title = 'Refresh runs';
+        refreshButton.innerHTML = '<i class="bi-arrow-clockwise"></i>';
+        refreshButton.onclick = () => {
+            const workflowElement = document.getElementById(`workflow-${workflow.id}`);
+            if (workflowElement) {
+                loadWorkflowRuns(owner, repo, workflow.id, workflow.name || 'Unnamed Workflow', workflowElement);
+            }
+        };
+        actionButtons.appendChild(refreshButton);
+        
+        // Assemble the card header
+        cardHeader.appendChild(titleElement);
+        cardHeader.appendChild(actionButtons);
+        
+        // Create card body for runs
+        const cardBody = document.createElement('div');
+        cardBody.className = 'card-body p-0';
+        
+        // Create runs container
+        const runsContainer = document.createElement('div');
+        runsContainer.className = 'workflow-runs list-group list-group-flush';
+        
+        // Add loading state
+        runsContainer.innerHTML = `
+            <div class="list-group-item text-center text-muted py-3">
+                <div class="spinner-border spinner-border-sm" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <span class="ms-2">Loading workflow runs...</span>
+            </div>`;
+        
+        // Assemble the card
+        cardBody.appendChild(runsContainer);
+        workflowElement.appendChild(cardHeader);
+        workflowElement.appendChild(cardBody);
+        
+        // Add to container
+        workflowContainer.appendChild(workflowElement);
+        
+        // Load workflow runs
+        loadWorkflowRuns(owner, repo, workflow.id, workflow.name || 'Unnamed Workflow', workflowElement);
+    });
 }
 
 // Format date to a readable format
@@ -875,24 +988,74 @@ function formatDate(dateString) {
 // Track if initialization has been done
 let isInitialized = false;
 
+// Function to initialize search functionality
+function initializeSearch() {
+    // Look for both possible search input IDs and initialize the first one found
+    const searchInputIds = ['repoSearch', 'searchInput'];
+    let searchInput = null;
+    
+    for (const id of searchInputIds) {
+        const element = document.getElementById(id);
+        if (element && !element.hasAttribute('data-listener-added')) {
+            searchInput = element;
+            break;
+        }
+    }
+    
+    if (searchInput) {
+        searchInput.setAttribute('data-listener-added', 'true');
+        searchInput.addEventListener('input', debounce(handleRepoSearch, 300));
+        
+        // Focus the search input when the search modal is shown
+        const searchModal = document.getElementById('searchRepoModal');
+        if (searchModal) {
+            searchModal.addEventListener('shown.bs.modal', () => {
+                searchInput.focus();
+            });
+        }
+    }
+}
+
+// Function to initialize refresh button
+function initializeRefreshButton() {
+    const refreshButton = document.getElementById('refreshRepos');
+    if (refreshButton && !refreshButton.hasAttribute('data-listener-added')) {
+        refreshButton.setAttribute('data-listener-added', 'true');
+        refreshButton.addEventListener('click', function(e) {
+            e.preventDefault();
+            const currentRepos = getSavedRepos();
+            updateReposList(currentRepos);
+            refreshAllWorkflows(true);
+        });
+    }
+}
+
 // Initialize the application when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', function() {
     if (isInitialized) return;
     isInitialized = true;
     
-    // Initialize the dashboard
+    console.log('DOM fully loaded, initializing dashboard...');
+    
+    // Initialize the dashboard if the function exists
     if (typeof initializeDashboard === 'function') {
         initializeDashboard();
     }
     
-    // Set up refresh button with debounce
-    const refreshBtn = document.getElementById('refreshRepos');
-    if (refreshBtn && !refreshBtn.hasAttribute('data-listener-added')) {
-        refreshBtn.setAttribute('data-listener-added', 'true');
-        refreshBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            refreshAllWorkflows(true);
-        });
+    // Load saved repositories
+    const savedRepos = getSavedRepos();
+    updateReposList(savedRepos);
+    
+    // Initialize UI components
+    initializeRefreshButton();
+    initializeSearch();
+    
+    // Load workflows for the first repository if available
+    if (savedRepos.length > 0) {
+        const container = document.getElementById('repo-container');
+        if (container) {
+            loadWorkflows(savedRepos[0].owner, savedRepos[0].name, container);
+        }
     }
     
     // Start polling if enabled in settings
