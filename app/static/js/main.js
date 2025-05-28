@@ -669,7 +669,6 @@ async function loadWorkflows(owner, repo, container) {
 
 // Request tracking and configuration
 const REQUEST_TIMEOUT = 30000; // 30 seconds
-const activeRequests = new Map(); // Tracks active requests to prevent duplicates
 
 async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container) {
     if (!container || !container.isConnected) {
