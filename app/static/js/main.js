@@ -776,16 +776,6 @@ async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container
             console.error(`Error in loadWorkflowRuns for ${workflowName}:`, error);
             updateWorkflowErrorUI(workflowId, workflowName, container, `Failed to load workflow runs: ${error.message}`);
         }
-            
-        // Only update if content has changed
-        if (workflowElement.innerHTML.trim() !== newContent.trim()) {
-            workflowElement.innerHTML = newContent;
-        }
-        
-        // Only append if not already in the container
-        if (!container.contains(workflowElement)) {
-            container.appendChild(workflowElement);
-        }
     } catch (error) {
         console.error(`Error loading runs for workflow ${workflowName}:`, error);
         
