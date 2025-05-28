@@ -428,19 +428,27 @@ function updateReposList(repos) {
             // Don't navigate if the remove button was clicked
             if (e.target.closest('.remove-repo')) return;
             
-            // Skip if already active
-            if (repoItem.classList.contains('active')) return;
-            
             // Update active state
             document.querySelectorAll('#repoList .list-group-item').forEach(item => {
                 item.classList.remove('active');
             });
             repoItem.classList.add('active');
             
-            // Load workflows
+            // Move existing card to top or load new one
             if (container) {
-                container.innerHTML = '';
-                await loadWorkflows(repo.owner, repo.name, container);
+                const repoId = `${repo.owner}_${repo.name}`.replace(/[^a-zA-Z0-9-_]/g, '_');
+                const existingCard = document.getElementById(`repo-${repoId}`);
+                
+                if (existingCard) {
+                    // If card exists, move it to the top
+                    if (container.firstChild !== existingCard) {
+                        container.insertBefore(existingCard, container.firstChild);
+                        container.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
+                } else {
+                    // Otherwise, load the workflows
+                    await loadWorkflows(repo.owner, repo.name, container);
+                }
             }
         };
         
@@ -475,13 +483,23 @@ function removeRepository(owner, repoName) {
     const updatedRepos = savedRepos.filter(r => !(r.owner === owner && r.name === repoName));
     
     if (updatedRepos.length !== savedRepos.length) {
-        localStorage.setItem('addedRepos', JSON.stringify(updatedRepos));
-        updateReposList(updatedRepos);
+        // Remove the repository card from the UI
+        const repoId = `${owner}_${repoName}`.replace(/[^a-zA-Z0-9-_]/g, '_');
+        const repoCard = document.getElementById(`repo-${repoId}`);
+        if (repoCard) {
+            repoCard.remove();
+        }
         
-        // If we're currently viewing this repo, clear the container
-        const container = document.getElementById('repo-container');
-        if (container) {
-            container.innerHTML = '';
+        // Update the saved repositories
+        localStorage.setItem('addedRepos', JSON.stringify(updatedRepos));
+        
+        // Update the active state in the sidebar
+        const repoButtons = document.querySelectorAll('#repoList .list-group-item');
+        if (repoButtons.length > 0) {
+            // If we have other repos, make the first one active
+            const firstButton = repoButtons[0];
+            repoButtons.forEach(btn => btn.classList.remove('active'));
+            firstButton.classList.add('active');
         }
     }
 }
@@ -560,7 +578,7 @@ async function loadWorkflows(owner, repo, container) {
         let workflowContainer = document.getElementById(workflowContainerId);
         let repoCard = document.getElementById(`repo-${repoId}`);
 
-        // If no card exists, create one
+        // Create a new card if it doesn't exist
         if (!repoCard) {
             repoCard = document.createElement('div');
             repoCard.className = 'card mb-3';
@@ -577,15 +595,22 @@ async function loadWorkflows(owner, repo, container) {
                     <div id="${workflowContainerId}" class="workflow-list"></div>
                 </div>`;
             
-            // Clear the container and add the new card
-            container.innerHTML = '';
-            container.appendChild(repoCard);
+            // Insert the new card at the top of the container
+            if (container.firstChild) {
+                container.insertBefore(repoCard, container.firstChild);
+            } else {
+                container.appendChild(repoCard);
+            }
+            
             workflowContainer = document.getElementById(workflowContainerId);
             
             if (!workflowContainer) {
                 console.error(`Failed to create workflow container for ${owner}/${repo}`);
                 return;
             }
+            
+            // Scroll to the top to show the newly added card
+            container.scrollTo({ top: 0, behavior: 'smooth' });
         } else if (!workflowContainer) {
             // If we have a card but no container, try to find or recreate it
             const cardBody = repoCard.querySelector('.card-body');
