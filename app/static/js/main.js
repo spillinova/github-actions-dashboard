@@ -566,20 +566,12 @@ async function loadWorkflows(owner, repo, container) {
             repoCard.className = 'card mb-3';
             repoCard.id = `repo-${repoId}`;
             repoCard.innerHTML = `
-                <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="card-header">
                     <h5 class="mb-0">
                         <a href="https://github.com/${owner}/${repo}" target="_blank" class="text-decoration-none">
                             ${owner}/${repo}
                         </a>
                     </h5>
-                    <div>
-                        <button class="btn btn-sm btn-outline-secondary me-2" onclick="refreshWorkflows('${owner}', '${repo}')">
-                            <i class="bi-arrow-clockwise"></i> Refresh
-                        </button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="removeRepository('${owner}', '${repo}')">
-                            <i class="bi-trash"></i> Remove
-                        </button>
-                    </div>
                 </div>
                 <div class="card-body">
                     <div id="${workflowContainerId}" class="workflow-list"></div>
