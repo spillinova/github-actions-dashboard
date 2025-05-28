@@ -660,7 +660,8 @@ async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container
         let data;
         
         try {
-            response = await fetch(`/api/runs/${owner}/${repo}/${workflowId}?per_page=5`);
+            // Only fetch the most recent run
+            response = await fetch(`/api/runs/${owner}/${repo}/${workflowId}?per_page=1`);
             
             if (!response.ok) {
                 const errorText = await response.text();
