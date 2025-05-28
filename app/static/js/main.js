@@ -740,127 +740,102 @@ async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container
             }
             return;
         }
+        
+        // Sort runs by creation date (newest first)
+        runs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        
+        // Format the runs HTML
+        const runsHtml = runs.map(run => {
+            const runStatus = run.conclusion || run.status || 'unknown';
+            const statusClass = getStatusBadgeClass(runStatus);
+            const runDate = formatDate(run.created_at);
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${run.id}`;
+            const commitMessage = run.head_commit?.message || 'No commit message';
+            const shortSha = run.head_sha ? run.head_sha.substring(0, 7) : 'N/A';
+            // Try multiple possible fields for branch name
+            const branch = run.head_branch || run.head_ref || run.head_repo?.default_branch || 'N/A';
+            const actor = run.actor?.login || run.triggering_actor?.login || 'unknown';
             
-            // Sort runs by creation date (newest first)
-            runs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            // Format duration
+            let duration = 'N/A';
+            if (run.updated_at && run.created_at) {
+                const start = new Date(run.created_at);
+                const end = new Date(run.updated_at);
+                const diffMs = end - start;
+                const diffMins = Math.floor(diffMs / 60000);
+                const diffSecs = Math.floor((diffMs % 60000) / 1000);
+                duration = diffMins > 0 ? `${diffMins}m ${diffSecs}s` : `${diffSecs}s`;
+            }
             
-            // Format the runs HTML
-            const runsHtml = runs.map(run => {
-                const runStatus = run.conclusion || run.status || 'unknown';
-                const statusClass = getStatusBadgeClass(runStatus);
-                const runDate = formatDate(run.created_at);
-                const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${run.id}`;
-                const commitMessage = run.head_commit?.message || 'No commit message';
-                const shortSha = run.head_sha ? run.head_sha.substring(0, 7) : 'N/A';
-                // Try multiple possible fields for branch name
-                const branch = run.head_branch || run.head_ref || run.head_repo?.default_branch || 'N/A';
-                const actor = run.actor?.login || run.triggering_actor?.login || 'unknown';
-                
-                // Format duration
-                let duration = 'N/A';
-                if (run.updated_at && run.created_at) {
-                    const start = new Date(run.created_at);
-                    const end = new Date(run.updated_at);
-                    const diffMs = end - start;
-                    const diffMins = Math.floor(diffMs / 60000);
-                    const diffSecs = Math.floor((diffMs % 60000) / 1000);
-                    duration = diffMins > 0 ? `${diffMins}m ${diffSecs}s` : `${diffSecs}s`;
-                }
-                
-                return `
-                    <div class="list-group-item list-group-item-action p-3">
-                        <div class="d-flex justify-content-between align-items-start mb-2">
-                            <div class="d-flex align-items-center">
-                                <span class="badge bg-${statusClass} me-2">
-                                    <i class="bi ${runStatus === 'success' ? 'bi-check-circle' : runStatus === 'failure' ? 'bi-x-circle' : 'bi-arrow-repeat'} me-1"></i>
-                                    ${runStatus.charAt(0).toUpperCase() + runStatus.slice(1)}
-                                </span>
-                                <a href="${runUrl}" target="_blank" class="text-decoration-none fw-bold me-2">
-                                    #${run.run_number}
-                                </a>
-                                <span class="badge bg-light text-dark border me-2">
-                                    <i class="bi-git me-1"></i>${branch}
-                                </span>
-                                <span class="badge bg-light text-dark border">
-                                    <i class="bi-person-fill me-1"></i>${actor}
-                                </span>
-                            </div>
-                            <small class="text-muted" title="${new Date(run.created_at).toLocaleString()}">
-                                <i class="bi-clock-history me-1"></i>${runDate}
-                            </small>
+            return `
+                <div class="list-group-item list-group-item-action p-3">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="d-flex align-items-center">
+                            <span class="badge bg-${statusClass} me-2">
+                                <i class="bi ${runStatus === 'success' ? 'bi-check-circle' : runStatus === 'failure' ? 'bi-x-circle' : 'bi-arrow-repeat'} me-1"></i>
+                                ${runStatus.charAt(0).toUpperCase() + runStatus.slice(1)}
+                            </span>
+                            <a href="${runUrl}" target="_blank" class="text-decoration-none fw-bold me-2">
+                                #${run.run_number}
+                            </a>
+                            <span class="badge bg-light text-dark border me-2">
+                                <i class="bi-git me-1"></i>${branch}
+                            </span>
+                            <span class="badge bg-light text-dark border">
+                                <i class="bi-person-fill me-1"></i>${actor}
+                            </span>
                         </div>
-                        
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div class="text-truncate me-2" title="${commitMessage.replace(/"/g, '&quot;')}">
-                                <i class="bi-git me-1"></i>
-                                ${commitMessage.split('\n')[0]}
-                            </div>
-                            <div class="text-nowrap text-muted small">
-                                <span class="me-2" title="Commit SHA">
-                                    <i class="bi-hash"></i> ${shortSha}
-                                </span>
-                                <span title="Duration">
-                                    <i class="bi-stopwatch"></i> ${duration}
-                                </span>
-                            </div>
+                        <small class="text-muted" title="${new Date(run.created_at).toLocaleString()}">
+                            <i class="bi-clock-history me-1"></i>${runDate}
+                        </small>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="text-truncate me-2" title="${commitMessage.replace(/"/g, '&quot;')}">
+                            <i class="bi-git me-1"></i>
+                            ${commitMessage.split('\n')[0]}
                         </div>
-                    </div>`;
-            }).join('');
+                        <div class="text-nowrap text-muted small">
+                            <span class="me-2" title="Commit SHA">
+                                <i class="bi-hash"></i> ${shortSha}
+                            </span>
+                            <span title="Duration">
+                                <i class="bi-stopwatch"></i> ${duration}
+                            </span>
+                        </div>
+                    </div>
+                </div>`;
+        }).join('');
+        
+        // Update the runs container
+        if (runsContainer) {
+            runsContainer.innerHTML = runsHtml;
             
-            // Update the runs container
-            if (runsContainer) {
-                runsContainer.innerHTML = runsHtml;
-                
-                // Add click handlers for each run item
-                runsContainer.querySelectorAll('.list-group-item').forEach(item => {
-                    item.addEventListener('click', (e) => {
-                        // Don't navigate if the click was on a link or button
-                        if (e.target.tagName === 'A' || e.target.closest('a, button')) {
-                            return;
-                        }
-                        // Toggle active class on the clicked item
-                        item.classList.toggle('active');
-                    });
+            // Add click handlers for each run item
+            runsContainer.querySelectorAll('.list-group-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    // Don't navigate if the click was on a link or button
+                    if (e.target.tagName === 'A' || e.target.closest('a, button')) {
+                        return;
+                    }
+                    // Toggle active class on the clicked item
+                    item.classList.toggle('active');
                 });
-            }
-            
-        } catch (error) {
-            // Don't log aborted requests as errors
-            if (error.name === 'AbortError') {
-                console.log(`Request for ${workflowName} was aborted`);
-                return;
-            }
-            console.error(`Error in loadWorkflowRuns for ${workflowName}:`, error);
-            updateWorkflowErrorUI(workflowId, workflowName, container, `Failed to load workflow runs: ${error.message}`);
-        } finally {
-            // Clean up the controller
-            if (controller) {
-                activeRequests.delete(workflowId);
-            }
+            });
         }
     } catch (error) {
-        console.error(`Error loading runs for workflow ${workflowName}:`, error);
-        
-        // Create or update error element
-        const errorId = `error-${workflowId}`;
-        let errorElement = document.getElementById(errorId);
-        
-        if (!errorElement) {
-            errorElement = document.createElement('div');
-            errorElement.id = errorId;
-            errorElement.className = 'alert alert-warning';
-            
-            // Append or replace existing content
-            const existingElement = document.getElementById(`workflow-${workflowId}`);
-            if (existingElement) {
-                existingElement.innerHTML = '';
-                existingElement.appendChild(errorElement);
-            } else {
-                container.appendChild(errorElement);
-            }
+        // Don't log aborted requests as errors
+        if (error.name === 'AbortError') {
+            console.log(`Request for ${workflowName} was aborted`);
+            return;
         }
-        
-        errorElement.textContent = `Failed to load runs for ${workflowName}. ${error.message || ''}`;
+        console.error(`Error in loadWorkflowRuns for ${workflowName}:`, error);
+        updateWorkflowErrorUI(workflowId, workflowName, container, `Failed to load workflow runs: ${error.message}`);
+    } finally {
+        // Clean up the controller
+        if (controller) {
+            activeRequests.delete(workflowId);
+        }
     }
 }
 
