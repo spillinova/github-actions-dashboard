@@ -572,86 +572,76 @@ async function loadWorkflows(owner, repo, container) {
                 <span class="ms-2">Loading workflows for ${owner}/${repo}...</span>
             </div>`;
 
-        // Check if we already have a card for this repo
+        // Generate IDs
         const repoId = `${owner}_${repo}`.replace(/[^a-zA-Z0-9-_]/g, '_');
         const workflowContainerId = `workflows-${repoId}`;
-        let workflowContainer = document.getElementById(workflowContainerId);
-        let repoCard = document.getElementById(`repo-${repoId}`);
-
-        // Create a new card if it doesn't exist
-        if (!repoCard) {
-            repoCard = document.createElement('div');
-            repoCard.className = 'card mb-3';
-            repoCard.id = `repo-${repoId}`;
-            repoCard.innerHTML = `
-                <div class="card-header">
-                    <h5 class="mb-0">
-                        <a href="https://github.com/${owner}/${repo}" target="_blank" class="text-decoration-none">
-                            ${owner}/${repo}
-                        </a>
-                    </h5>
-                </div>
-                <div class="card-body">
-                    <div id="${workflowContainerId}" class="workflow-list"></div>
-                </div>`;
-            
-            // Insert the new card at the top of the container
-            if (container.firstChild) {
-                container.insertBefore(repoCard, container.firstChild);
-            } else {
-                container.appendChild(repoCard);
-            }
-            
-            workflowContainer = document.getElementById(workflowContainerId);
-            
-            if (!workflowContainer) {
-                console.error(`Failed to create workflow container for ${owner}/${repo}`);
-                return;
-            }
-            
-            // Scroll to the top to show the newly added card
-            container.scrollTo({ top: 0, behavior: 'smooth' });
-        } else if (!workflowContainer) {
-            // If we have a card but no container, try to find or recreate it
-            const cardBody = repoCard.querySelector('.card-body');
-            if (cardBody) {
-                workflowContainer = document.createElement('div');
-                workflowContainer.id = workflowContainerId;
-                workflowContainer.className = 'workflow-list';
-                cardBody.innerHTML = '';
-                cardBody.appendChild(workflowContainer);
-            } else {
-                console.error(`Card body not found for ${owner}/${repo}`);
-                return;
-            }
+        
+        // Remove existing card if it exists
+        const existingCard = document.getElementById(`repo-${repoId}`);
+        if (existingCard) {
+            existingCard.remove();
         }
         
-        // Fetch workflows for this repository
-        const apiUrl = `/api/workflows/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-        console.log(`Fetching workflows from: ${apiUrl}`);
+        // Create new card
+        const repoCard = document.createElement('div');
+        repoCard.className = 'card mb-3';
+        repoCard.id = `repo-${repoId}`;
+        repoCard.innerHTML = `
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <a href="https://github.com/${owner}/${repo}" target="_blank" class="text-decoration-none">
+                        ${owner}/${repo}
+                    </a>
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="${workflowContainerId}" class="workflow-list"></div>
+            </div>`;
         
-        let response;
+        // Insert the new card at the top of the container
+        if (container.firstChild) {
+            container.insertBefore(repoCard, container.firstChild);
+        } else {
+            container.appendChild(repoCard);
+        }
+        
+        // Get reference to the workflow container
+        const workflowContainer = document.getElementById(workflowContainerId);
+        if (!workflowContainer) {
+            console.error(`Failed to create workflow container for ${owner}/${repo}`);
+            return;
+        }
+        
+        // Scroll to the top to show the newly added card
+        container.scrollTo({ top: 0, behavior: 'smooth' });
+        
+        // Now load the workflows for this repository
         try {
-            response = await fetch(apiUrl);
+            const apiUrl = `/api/workflows/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+            console.log(`Fetching workflows from: ${apiUrl}`);
             
+            const response = await fetch(apiUrl);
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error(`API Error (${response.status}) for ${owner}/${repo}:`, errorText);
+                console.error(`HTTP error! status: ${response.status}, response:`, errorText);
                 
                 // Handle 404 specifically
                 if (response.status === 404) {
-                    throw new Error(`Repository not found or access denied: ${owner}/${repo}`);
+                    throw new Error('Repository not found or access denied');
                 }
-                
-                throw new Error(`HTTP error! status: ${response.status}, response: ${errorText}`);
+                throw new Error(`Failed to load workflows: ${response.status} ${response.statusText}`);
             }
             
-            const data = await response.json();
-            console.log(`Workflows data received for ${owner}/${repo}:`, data);
-            const workflows = data.workflows || [];
+            const workflows = await response.json();
             
-            // Update the workflow container with the workflows data
-            updateWorkflowContainer(workflowContainerId, owner, repo, workflows);
+            // Clear the loading state
+            workflowContainer.innerHTML = '';
+            
+            // Process and display workflows
+            if (!workflows || workflows.length === 0) {
+                workflowContainer.innerHTML = '<p class="text-muted">No workflows found for this repository.</p>';
+                return;
+            }
             
             // Load workflow runs for each workflow
             workflows.forEach(workflow => {
@@ -659,16 +649,14 @@ async function loadWorkflows(owner, repo, container) {
             });
             
         } catch (error) {
-            console.error(`Error fetching workflows for ${owner}/${repo}:`, error);
-            // Show user-friendly error
+            console.error('Error loading workflows:', error);
             if (workflowContainer) {
                 workflowContainer.innerHTML = `
-                    <div class="alert alert-warning">
+                    <div class="alert alert-danger">
                         <i class="bi bi-exclamation-triangle"></i>
                         Failed to load workflows: ${error.message}
                     </div>`;
             }
-            return [];
         }
     } catch (error) {
         console.error(`Error loading workflows for ${owner}/${repo}:`, error);
