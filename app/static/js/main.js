@@ -16,9 +16,12 @@ function debounce(func, wait) {
 // Function to load the user's repositories
 async function loadMyRepos() {
     console.log('loadMyRepos called');
+    console.log('Document readyState:', document.readyState);
+    
     const resultsContainer = document.getElementById('searchResults');
     if (!resultsContainer) {
-        console.error('searchResults container not found');
+        console.error('searchResults container not found. Available elements with ID searchResults:', 
+            document.querySelectorAll('#searchResults').length);
         return;
     }
     
@@ -32,9 +35,9 @@ async function loadMyRepos() {
         </div>`;
     
     try {
-        console.log('Fetching repositories from /api/my-repos');
+        console.log('Making API request to /api/my-repos...');
         const response = await fetch('/api/my-repos');
-        console.log('Response status:', response.status);
+        console.log('API response status:', response.status);
         
         if (!response.ok) {
             const errorText = await response.text();
@@ -47,7 +50,12 @@ async function loadMyRepos() {
         }
         
         const data = await response.json();
-        console.log('Repositories data received:', data);
+        console.log('API response data:', data);
+        
+        if (!data) {
+            console.error('No data received from server');
+            throw new Error('No data received from server');
+        }
         
         const repos = Array.isArray(data.items) ? data.items : [];
         console.log(`Found ${repos.length} repositories`);
@@ -62,7 +70,7 @@ async function loadMyRepos() {
             return;
         }
         
-        // Display repositories
+        // If we got this far, we have valid data
         console.log('Rendering repositories');
         renderRepositories(repos, 'Your repositories');
         
@@ -73,12 +81,15 @@ async function loadMyRepos() {
             stack: error.stack
         });
         
-        resultsContainer.innerHTML = `
-            <div class="alert alert-danger" role="alert">
-                <i class="bi bi-exclamation-triangle-fill"></i>
-                Failed to load repositories: ${error.message || 'Unknown error'}
-                <div class="mt-2 small">Check the console for more details.</div>
-            </div>`;
+        // Show error to user
+        if (resultsContainer) {
+            resultsContainer.innerHTML = `
+                <div class="alert alert-danger" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    Failed to load repositories: ${error.message || 'Unknown error'}
+                    <div class="mt-2 small">Check the browser console for more details.</div>
+                </div>`;
+        }
     }
 }
 
@@ -1205,4 +1216,26 @@ if (typeof module !== 'undefined' && module.exports) {
         loadWorkflowRuns,
         formatDate
     };
+} else {
+    // Initialize the dashboard when the DOM is fully loaded
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('DOM fully loaded, initializing dashboard...');
+        loadMyRepos();
+        
+        // Add event listener for the refresh button
+        const refreshButton = document.getElementById('refreshRepos');
+        if (refreshButton) {
+            refreshButton.addEventListener('click', loadMyRepos);
+        } else {
+            console.warn('Refresh button not found');
+        }
+        
+        // Add event listener for search input
+        const searchInput = document.getElementById('repoSearch');
+        if (searchInput) {
+            searchInput.addEventListener('input', debounce(handleRepoSearch, 300));
+        } else {
+            console.warn('Search input not found');
+        }
+    });
 }
