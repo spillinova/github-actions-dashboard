@@ -251,12 +251,20 @@ const activeRequests = new Map();
 
 // Function to cancel pending requests for a workflow
 function cancelPendingRequests(workflowId) {
-    if (activeRequests.has(workflowId)) {
-        const { controller, timestamp } = activeRequests.get(workflowId);
-        if (Date.now() - timestamp < 10000) { // Only cancel if request is recent (less than 10s old)
-            controller.abort();
+    if (!workflowId) return;
+    
+    const request = activeRequests.get(workflowId);
+    if (request) {
+        const { controller, timestamp } = request;
+        try {
+            if (controller && !controller.signal.aborted && Date.now() - timestamp < 10000) {
+                controller.abort();
+            }
+        } catch (e) {
+            console.error('Error aborting controller:', e);
+        } finally {
+            activeRequests.delete(workflowId);
         }
-        activeRequests.delete(workflowId);
     }
 }
 
@@ -654,81 +662,84 @@ async function loadWorkflows(owner, repo, container) {
 }
 
 async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container) {
+    if (!container || !container.isConnected) {
+        console.log(`Container not available for ${owner}/${repo}/${workflowId}`);
+        return;
+    }
+
+    console.log(`Loading runs for workflow: ${workflowName} (${workflowId})`);
+    
+    // Show loading state
+    const runsContainer = container.querySelector('.workflow-runs');
+    if (runsContainer) {
+        runsContainer.innerHTML = `
+            <div class="list-group-item text-center text-muted py-3">
+                <div class="spinner-border spinner-border-sm" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <span class="ms-2">Loading workflow runs...</span>
+            </div>`;
+    }
+    
+    let response;
+    let data;
+    let controller;
+    
     try {
-        if (!container || !container.isConnected) {
-            console.log(`Container not available for ${owner}/${repo}/${workflowId}`);
+        // Cancel any pending requests for this workflow
+        cancelPendingRequests(workflowId);
+        
+        // Create a new AbortController for this request
+        controller = new AbortController();
+        activeRequests.set(workflowId, { 
+            controller, 
+            timestamp: Date.now() 
+        });
+        
+        // Only fetch the most recent run with cache control
+        response = await fetch(`/api/runs/${owner}/${repo}/${workflowId}?per_page=1&t=${Date.now()}`, {
+            signal: controller.signal,
+            headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            }
+        });
+        
+        // Check if the request was aborted
+        if (controller.signal.aborted) {
+            console.log(`Request for ${workflowName} was aborted`);
             return;
         }
-
-        console.log(`Loading runs for workflow: ${workflowName} (${workflowId})`);
         
-        // Show loading state
-        const runsContainer = container.querySelector('.workflow-runs');
-        if (runsContainer) {
-            runsContainer.innerHTML = `
-                <div class="list-group-item text-center text-muted py-3">
-                    <div class="spinner-border spinner-border-sm" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                    <span class="ms-2">Loading workflow runs...</span>
-                </div>`;
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`HTTP error! status: ${response.status}, response:`, errorText);
+            throw new Error(`Failed to load runs: ${response.status} ${response.statusText}`);
         }
         
-        let response;
-        let data;
+        data = await response.json();
         
-        try {
-            // Cancel any pending requests for this workflow
-            cancelPendingRequests(workflowId);
-            
-            // Create a new AbortController for this request
-            const controller = new AbortController();
-            const requestKey = `${owner}/${repo}/${workflowId}`;
-            activeRequests.set(workflowId, { 
-                controller, 
-                timestamp: Date.now() 
-            });
-            
-            // Only fetch the most recent run with cache control
-            response = await fetch(`/api/runs/${owner}/${repo}/${workflowId}?per_page=1&t=${Date.now()}`, {
-                signal: controller.signal,
-                headers: {
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache',
-                    'Expires': '0'
-                }
-            });
-            
-            // Remove from active requests once completed
-            activeRequests.delete(workflowId);
-            
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`HTTP error! status: ${response.status}, response:`, errorText);
-                throw new Error(`Failed to load runs: ${response.status} ${response.statusText}`);
+        if (!data || !Array.isArray(data.runs)) {
+            throw new Error('Invalid response format from server');
+        }
+        
+        console.log(`Received data for ${workflowName}:`, data);
+        
+        // Process the runs
+        const runs = Array.isArray(data.runs) ? data.runs : [];
+        
+        if (runs.length === 0) {
+            if (runsContainer) {
+                runsContainer.innerHTML = `
+                    <div class="list-group-item text-center py-4">
+                        <i class="bi bi-inbox fs-1 text-muted mb-2"></i>
+                        <p class="mb-0">No workflow runs found</p>
+                        <small class="text-muted">Push a commit to trigger a workflow run</small>
+                    </div>`;
             }
-            
-            data = await response.json();
-            
-            if (!data || !Array.isArray(data.runs)) {
-                throw new Error('Invalid response format from server');
-            }
-            
-            console.log(`Received data for ${workflowName}:`, data);
-            
-            const runs = Array.isArray(data.runs) ? data.runs : [];
-            
-            if (runs.length === 0) {
-                if (runsContainer) {
-                    runsContainer.innerHTML = `
-                        <div class="list-group-item text-center py-4">
-                            <i class="bi bi-inbox fs-1 text-muted mb-2"></i>
-                            <p class="mb-0">No workflow runs found</p>
-                            <small class="text-muted">Push a commit to trigger a workflow run</small>
-                        </div>`;
-                }
-                return;
-            }
+            return;
+        }
             
             // Sort runs by creation date (newest first)
             runs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -814,8 +825,18 @@ async function loadWorkflowRuns(owner, repo, workflowId, workflowName, container
             }
             
         } catch (error) {
+            // Don't log aborted requests as errors
+            if (error.name === 'AbortError') {
+                console.log(`Request for ${workflowName} was aborted`);
+                return;
+            }
             console.error(`Error in loadWorkflowRuns for ${workflowName}:`, error);
             updateWorkflowErrorUI(workflowId, workflowName, container, `Failed to load workflow runs: ${error.message}`);
+        } finally {
+            // Clean up the controller
+            if (controller) {
+                activeRequests.delete(workflowId);
+            }
         }
     } catch (error) {
         console.error(`Error loading runs for workflow ${workflowName}:`, error);
